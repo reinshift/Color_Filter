@@ -2,6 +2,7 @@
 主窗口模块
 
 实现图片颜色分类器的主界面，采用扁平简约设计风格。
+支持简单模式和高级模式两种分类算法。
 """
 
 import ctypes
@@ -26,6 +27,9 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QSizePolicy,
+    QComboBox,
+    QSlider,
+    QSpinBox,
 )
 from PyQt6.QtGui import QPixmap, QIcon
 
@@ -39,30 +43,47 @@ from .styles import (
     COLORS,
 )
 from core.engine import ClassificationEngine
+from core.advanced_engine import AdvancedClassificationEngine
 from core.preview_generator import PreviewGenerator
-from core.models import ClassificationResult, RollbackResult
+from core.models import (
+    ClassificationResult, 
+    RollbackResult,
+    AdvancedClassificationResult,
+    FeatureWeights,
+)
 
 
 class ClassificationWorker(QThread):
     """分类工作线程，避免阻塞UI"""
     
     progress_updated = pyqtSignal(int, int, str)
-    finished = pyqtSignal(object)  # ClassificationResult
+    finished = pyqtSignal(object)  # ClassificationResult or AdvancedClassificationResult
     error = pyqtSignal(str)
     
-    def __init__(self, engine: ClassificationEngine, source_path: str, target_path: Optional[str] = None):
+    def __init__(self, engine, source_path: str, target_path: Optional[str] = None, 
+                 n_clusters: Optional[int] = None, is_advanced: bool = False):
         super().__init__()
         self.engine = engine
         self.source_path = source_path
         self.target_path = target_path
+        self.n_clusters = n_clusters
+        self.is_advanced = is_advanced
     
     def run(self):
         try:
-            result = self.engine.classify(
-                self.source_path,
-                self.target_path,
-                progress_callback=self._on_progress
-            )
+            if self.is_advanced:
+                result = self.engine.classify(
+                    self.source_path,
+                    self.target_path,
+                    n_clusters=self.n_clusters,
+                    progress_callback=self._on_progress
+                )
+            else:
+                result = self.engine.classify(
+                    self.source_path,
+                    self.target_path,
+                    progress_callback=self._on_progress
+                )
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -76,15 +97,18 @@ class MainWindow(QMainWindow):
     应用主窗口，扁平简约设计
     
     提供文件夹选择、分类控制、进度显示和预览功能。
+    支持简单模式和高级模式两种分类算法。
     """
     
     def __init__(self):
         super().__init__()
         self._engine = ClassificationEngine()
+        self._advanced_engine = AdvancedClassificationEngine()
         self._preview_generator = PreviewGenerator()
         self._worker: Optional[ClassificationWorker] = None
         self._is_admin = self.check_admin_mode()
-        self._last_result: Optional[ClassificationResult] = None
+        self._last_result = None  # ClassificationResult or AdvancedClassificationResult
+        self._is_advanced_mode = False
         
         self.setup_ui()
         self.apply_flat_style()
@@ -109,6 +133,9 @@ class MainWindow(QMainWindow):
         
         # 路径选择区域
         self._setup_path_selection(main_layout)
+        
+        # 模式选择和高级设置区域
+        self._setup_mode_selection(main_layout)
         
         # 控制按钮区域
         self._setup_controls(main_layout)
@@ -159,6 +186,115 @@ class MainWindow(QMainWindow):
         path_layout.addWidget(self._browse_btn)
         
         layout.addWidget(path_group)
+    
+    def _setup_mode_selection(self, layout: QVBoxLayout) -> None:
+        """设置模式选择和高级设置区域"""
+        mode_group = QGroupBox("分类设置")
+        mode_layout = QVBoxLayout(mode_group)
+        
+        # 模式选择行
+        mode_row = QHBoxLayout()
+        
+        mode_label = QLabel("分类模式:")
+        mode_row.addWidget(mode_label)
+        
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItem("简单模式 (按主色调分类)", False)
+        self._mode_combo.addItem("高级模式 (多维度特征分析)", True)
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        self._mode_combo.setMinimumWidth(200)
+        mode_row.addWidget(self._mode_combo)
+        
+        mode_row.addStretch()
+        mode_layout.addLayout(mode_row)
+        
+        # 高级设置容器
+        self._advanced_settings = QWidget()
+        advanced_layout = QVBoxLayout(self._advanced_settings)
+        advanced_layout.setContentsMargins(0, 8, 0, 0)
+        
+        # 聚类数设置
+        cluster_row = QHBoxLayout()
+        cluster_label = QLabel("聚类数:")
+        cluster_row.addWidget(cluster_label)
+        
+        self._auto_cluster_check = QPushButton("自动")
+        self._auto_cluster_check.setCheckable(True)
+        self._auto_cluster_check.setChecked(True)
+        self._auto_cluster_check.setStyleSheet(SECONDARY_BUTTON_STYLE)
+        self._auto_cluster_check.clicked.connect(self._on_auto_cluster_toggled)
+        cluster_row.addWidget(self._auto_cluster_check)
+        
+        self._cluster_spin = QSpinBox()
+        self._cluster_spin.setRange(2, 20)
+        self._cluster_spin.setValue(5)
+        self._cluster_spin.setEnabled(False)
+        self._cluster_spin.setMinimumWidth(60)
+        cluster_row.addWidget(self._cluster_spin)
+        
+        cluster_row.addStretch()
+        advanced_layout.addLayout(cluster_row)
+        
+        # 特征权重设置
+        weights_row = QHBoxLayout()
+        
+        # 色调权重
+        hue_label = QLabel("色调:")
+        weights_row.addWidget(hue_label)
+        self._hue_slider = QSlider(Qt.Orientation.Horizontal)
+        self._hue_slider.setRange(0, 100)
+        self._hue_slider.setValue(40)
+        self._hue_slider.setMaximumWidth(80)
+        weights_row.addWidget(self._hue_slider)
+        self._hue_value = QLabel("40%")
+        self._hue_value.setMinimumWidth(35)
+        weights_row.addWidget(self._hue_value)
+        self._hue_slider.valueChanged.connect(lambda v: self._hue_value.setText(f"{v}%"))
+        
+        # 明度权重
+        light_label = QLabel("明度:")
+        weights_row.addWidget(light_label)
+        self._lightness_slider = QSlider(Qt.Orientation.Horizontal)
+        self._lightness_slider.setRange(0, 100)
+        self._lightness_slider.setValue(35)
+        self._lightness_slider.setMaximumWidth(80)
+        weights_row.addWidget(self._lightness_slider)
+        self._lightness_value = QLabel("35%")
+        self._lightness_value.setMinimumWidth(35)
+        weights_row.addWidget(self._lightness_value)
+        self._lightness_slider.valueChanged.connect(lambda v: self._lightness_value.setText(f"{v}%"))
+        
+        # 饱和度权重
+        sat_label = QLabel("饱和度:")
+        weights_row.addWidget(sat_label)
+        self._saturation_slider = QSlider(Qt.Orientation.Horizontal)
+        self._saturation_slider.setRange(0, 100)
+        self._saturation_slider.setValue(25)
+        self._saturation_slider.setMaximumWidth(80)
+        weights_row.addWidget(self._saturation_slider)
+        self._saturation_value = QLabel("25%")
+        self._saturation_value.setMinimumWidth(35)
+        weights_row.addWidget(self._saturation_value)
+        self._saturation_slider.valueChanged.connect(lambda v: self._saturation_value.setText(f"{v}%"))
+        
+        weights_row.addStretch()
+        advanced_layout.addLayout(weights_row)
+        
+        self._advanced_settings.setVisible(False)
+        mode_layout.addWidget(self._advanced_settings)
+        
+        layout.addWidget(mode_group)
+    
+    def _on_mode_changed(self, index: int) -> None:
+        """模式切换回调"""
+        self._is_advanced_mode = self._mode_combo.currentData()
+        self._advanced_settings.setVisible(self._is_advanced_mode)
+    
+    def _on_auto_cluster_toggled(self) -> None:
+        """自动聚类切换回调"""
+        is_auto = self._auto_cluster_check.isChecked()
+        self._cluster_spin.setEnabled(not is_auto)
+        self._auto_cluster_check.setText("自动" if is_auto else "手动")
     
     def _setup_controls(self, layout: QVBoxLayout) -> None:
         """设置控制按钮区域"""
@@ -278,35 +414,73 @@ class MainWindow(QMainWindow):
         self._progress_label.setText("正在扫描...")
         self._file_label.setText("")
         
-        # 启动工作线程
-        self._worker = ClassificationWorker(self._engine, source_path)
+        # 根据模式选择引擎
+        if self._is_advanced_mode:
+            # 更新特征权重
+            weights = FeatureWeights(
+                hue=self._hue_slider.value() / 100.0,
+                lightness=self._lightness_slider.value() / 100.0,
+                saturation=self._saturation_slider.value() / 100.0
+            )
+            self._advanced_engine.set_feature_weights(weights)
+            
+            # 获取聚类数
+            n_clusters = None if self._auto_cluster_check.isChecked() else self._cluster_spin.value()
+            
+            # 启动高级模式工作线程
+            self._worker = ClassificationWorker(
+                self._advanced_engine, 
+                source_path,
+                n_clusters=n_clusters,
+                is_advanced=True
+            )
+        else:
+            # 启动简单模式工作线程
+            self._worker = ClassificationWorker(self._engine, source_path, is_advanced=False)
+        
         self._worker.progress_updated.connect(self.update_progress)
         self._worker.finished.connect(self._on_classification_finished)
         self._worker.error.connect(self._on_classification_error)
         self._worker.start()
     
-    def _on_classification_finished(self, result: ClassificationResult) -> None:
+    def _on_classification_finished(self, result) -> None:
         """分类完成回调"""
         self._last_result = result
         self._set_buttons_enabled(True)
         self._update_button_states()
         
         # 显示完成信息
-        self._progress_label.setText(
-            f"完成: 成功 {result.total_processed} 张, 失败 {result.total_failed} 张"
-        )
+        if isinstance(result, AdvancedClassificationResult):
+            self._progress_label.setText(
+                f"完成: {result.total_images} 张图片, {result.n_clusters} 个类别, "
+                f"轮廓系数: {result.silhouette_score:.2f}"
+            )
+        else:
+            self._progress_label.setText(
+                f"完成: 成功 {result.total_processed} 张, 失败 {result.total_failed} 张"
+            )
         self._file_label.setText("")
         
         # 显示预览
         if result.total_processed > 0:
             self.show_preview(result)
         
-        QMessageBox.information(
-            self,
-            "分类完成",
-            f"成功分类 {result.total_processed} 张图片\n"
-            f"失败 {result.total_failed} 张"
-        )
+        # 显示完成对话框
+        if isinstance(result, AdvancedClassificationResult):
+            QMessageBox.information(
+                self,
+                "分类完成",
+                f"成功分类 {result.total_images} 张图片\n"
+                f"分为 {result.n_clusters} 个类别\n"
+                f"聚类质量 (轮廓系数): {result.silhouette_score:.2f}"
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "分类完成",
+                f"成功分类 {result.total_processed} 张图片\n"
+                f"失败 {result.total_failed} 张"
+            )
     
     def _on_classification_error(self, error_msg: str) -> None:
         """分类错误回调"""
@@ -350,13 +524,16 @@ class MainWindow(QMainWindow):
             self._progress_label.setText(f"处理中: {current}/{total}")
             self._file_label.setText(filename)
 
-    def show_preview(self, result: ClassificationResult) -> None:
+    def show_preview(self, result) -> None:
         """显示分类结果预览"""
         self._clear_preview()
         
         source_path = self._path_edit.text()
         
-        for category, count in sorted(result.category_counts.items(), key=lambda x: -x[1]):
+        # 获取类别计数（兼容两种结果类型）
+        category_counts = result.category_counts
+        
+        for category, count in sorted(category_counts.items(), key=lambda x: -x[1]):
             category_path = os.path.join(source_path, category)
             
             if os.path.isdir(category_path):
