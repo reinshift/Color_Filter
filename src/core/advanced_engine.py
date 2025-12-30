@@ -18,13 +18,15 @@ from .models import (
     MoveRecord,
     TonalClass,
     HueCategory,
-    SaturationLevel
+    SaturationLevel,
+    RollbackResult
 )
 from .advanced_extractor import AdvancedFeatureExtractor
 from .similarity_calculator import SimilarityCalculator
 from .adaptive_clusterer import AdaptiveClusterer
 from .category_namer import CategoryNamer
 from .scanner import ImageScanner
+from .rollback_manager import RollbackManager
 
 
 class AdvancedClassificationEngine:
@@ -54,6 +56,8 @@ class AdvancedClassificationEngine:
         self.clusterer = clusterer or AdaptiveClusterer()
         self.namer = namer or CategoryNamer()
         self.scanner = ImageScanner()
+        self._rollback_manager = RollbackManager()
+        self._created_folders: list[str] = []
     
     def set_feature_weights(self, weights: FeatureWeights) -> None:
         """设置特征权重"""
@@ -251,6 +255,10 @@ class AdvancedClassificationEngine:
         Returns:
             移动记录列表
         """
+        # 清空之前的回退记录
+        self._rollback_manager.clear()
+        self._created_folders = []
+        
         move_records = []
         total_files = sum(c.image_count for c in clusters)
         current = 0
@@ -258,7 +266,9 @@ class AdvancedClassificationEngine:
         for cluster in clusters:
             # 创建类别文件夹
             category_path = os.path.join(target_path, cluster.name)
-            os.makedirs(category_path, exist_ok=True)
+            if not os.path.exists(category_path):
+                os.makedirs(category_path, exist_ok=True)
+                self._created_folders.append(category_path)
             
             for image_path in cluster.image_paths:
                 current += 1
@@ -279,13 +289,22 @@ class AdvancedClassificationEngine:
                     
                     shutil.move(image_path, dest_path)
                     
-                    move_records.append(MoveRecord(
+                    record = MoveRecord(
                         source_path=image_path,
                         destination_path=dest_path,
                         timestamp=time.time()
-                    ))
+                    )
+                    move_records.append(record)
+                    
+                    # 记录到回退管理器
+                    self._rollback_manager.record_move(record)
+                    
                 except Exception as e:
                     print(f"警告: 无法移动文件 {image_path}: {e}")
+        
+        # 记录创建的文件夹
+        for folder in self._created_folders:
+            self._rollback_manager.record_folder_creation(folder)
         
         return move_records
     
@@ -311,3 +330,33 @@ class AdvancedClassificationEngine:
             n_clusters=n_clusters,
             progress_callback=progress_callback
         )
+
+    def rollback(self) -> RollbackResult:
+        """
+        执行回退操作，将所有图片恢复到原始位置
+        
+        Returns:
+            RollbackResult: 回退结果，包含成功/失败数量
+        """
+        if not self._rollback_manager.has_records():
+            return RollbackResult(success_count=0, failed_count=0, failed_files=[])
+        
+        return self._rollback_manager.rollback()
+    
+    def can_rollback(self) -> bool:
+        """
+        检查是否可以执行回退操作
+        
+        Returns:
+            bool: 如果有可回退的记录返回True
+        """
+        return self._rollback_manager.has_records()
+    
+    def get_rollback_count(self) -> int:
+        """
+        获取可回退的记录数量
+        
+        Returns:
+            int: 记录数量
+        """
+        return self._rollback_manager.get_record_count()

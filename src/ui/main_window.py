@@ -427,10 +427,11 @@ class MainWindow(QMainWindow):
             # 获取聚类数
             n_clusters = None if self._auto_cluster_check.isChecked() else self._cluster_spin.value()
             
-            # 启动高级模式工作线程
+            # 启动高级模式工作线程，target_path=source_path 表示在源文件夹下创建子文件夹
             self._worker = ClassificationWorker(
                 self._advanced_engine, 
                 source_path,
+                target_path=source_path,
                 n_clusters=n_clusters,
                 is_advanced=True
             )
@@ -492,29 +493,57 @@ class MainWindow(QMainWindow):
     
     def on_rollback(self) -> None:
         """处理回退操作"""
-        if not self._engine.can_rollback():
+        # 检查当前模式的引擎是否可以回退
+        can_rollback_simple = self._engine.can_rollback()
+        can_rollback_advanced = self._advanced_engine.can_rollback()
+        
+        if not can_rollback_simple and not can_rollback_advanced:
             QMessageBox.information(self, "提示", "没有可撤销的操作")
             return
         
-        reply = QMessageBox.question(
-            self,
-            "确认撤销",
-            f"确定要撤销上次分类操作吗?\n"
-            f"将恢复 {self._engine.get_rollback_count()} 个文件到原位置。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            result = self._engine.rollback()
-            self._update_button_states()
-            self._clear_preview()
-            
-            QMessageBox.information(
+        # 优先回退高级模式的操作
+        if can_rollback_advanced:
+            rollback_count = self._advanced_engine.get_rollback_count()
+            reply = QMessageBox.question(
                 self,
-                "撤销完成",
-                f"成功恢复 {result.success_count} 个文件\n"
-                f"失败 {result.failed_count} 个"
+                "确认撤销",
+                f"确定要撤销上次分类操作吗?\n"
+                f"将恢复 {rollback_count} 个文件到原位置。",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                result = self._advanced_engine.rollback()
+                self._update_button_states()
+                self._clear_preview()
+                
+                QMessageBox.information(
+                    self,
+                    "撤销完成",
+                    f"成功恢复 {result.success_count} 个文件\n"
+                    f"失败 {result.failed_count} 个"
+                )
+        elif can_rollback_simple:
+            rollback_count = self._engine.get_rollback_count()
+            reply = QMessageBox.question(
+                self,
+                "确认撤销",
+                f"确定要撤销上次分类操作吗?\n"
+                f"将恢复 {rollback_count} 个文件到原位置。",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                result = self._engine.rollback()
+                self._update_button_states()
+                self._clear_preview()
+                
+                QMessageBox.information(
+                    self,
+                    "撤销完成",
+                    f"成功恢复 {result.success_count} 个文件\n"
+                    f"失败 {result.failed_count} 个"
+                )
     
     def update_progress(self, current: int, total: int, filename: str) -> None:
         """更新进度显示"""
@@ -647,7 +676,7 @@ class MainWindow(QMainWindow):
     def _update_button_states(self) -> None:
         """更新按钮状态"""
         has_path = bool(self._path_edit.text())
-        can_rollback = self._engine.can_rollback()
+        can_rollback = self._engine.can_rollback() or self._advanced_engine.can_rollback()
         
         self._start_btn.setEnabled(has_path)
         self._rollback_btn.setEnabled(can_rollback)
