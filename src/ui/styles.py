@@ -1,319 +1,272 @@
 """
-扁平简约风格样式表
-Flat minimalist style definitions for the Image Color Classifier UI
+Fluent Design 样式表
+Windows 11 风格，支持亚克力效果和夜间模式
 """
 
-# 主色调定义
-COLORS = {
-    'background': '#F5F5F5',      # 浅灰背景
-    'surface': '#FFFFFF',          # 白色表面
-    'primary': '#607D8B',          # 蓝灰主色
-    'primary_hover': '#546E7A',    # 主色悬停
-    'primary_pressed': '#455A64',  # 主色按下
-    'secondary': '#90A4AE',        # 次要色
-    'text_primary': '#37474F',     # 主要文字
-    'text_secondary': '#78909C',   # 次要文字
-    'border': '#E0E0E0',           # 边框色
-    'success': '#66BB6A',          # 成功色
-    'warning': '#FFA726',          # 警告色
-    'error': '#EF5350',            # 错误色
-    'progress_bg': '#E0E0E0',      # 进度条背景
-    'progress_fill': '#607D8B',    # 进度条填充
+# 浅色主题配色
+COLORS_LIGHT = {
+    'bg_solid': '#F5F5F5',
+    'surface': 'rgba(255, 255, 255, 0.50)',
+    'surface_solid': 'rgba(255, 255, 255, 0.85)',
+    'accent': '#0078D4',
+    'accent_hover': '#1984D8',
+    'accent_pressed': '#006CBE',
+    'text': '#1A1A1A',
+    'text_secondary': '#606060',
+    'text_on_accent': '#FFFFFF',
+    'border': 'rgba(0, 0, 0, 0.06)',
+    'border_strong': 'rgba(0, 0, 0, 0.12)',
+    'control': 'rgba(255, 255, 255, 0.55)',
+    'titlebar_hover': 'rgba(0, 0, 0, 0.05)',
+    'close_hover': '#E81123',
+    'card_bg': 'rgba(255, 255, 255, 0.65)',
+    'input_bg': 'rgba(255, 255, 255, 0.7)',
+    'input_hover': 'rgba(255, 255, 255, 0.85)',
 }
 
-# 主窗口样式
-MAIN_WINDOW_STYLE = f"""
-QMainWindow {{
-    background-color: {COLORS['background']};
-}}
+# 深色主题配色
+COLORS_DARK = {
+    'bg_solid': '#202020',
+    'surface': 'rgba(40, 40, 40, 0.50)',
+    'surface_solid': 'rgba(40, 40, 40, 0.85)',
+    'accent': '#60CDFF',
+    'accent_hover': '#7AD4FF',
+    'accent_pressed': '#4AC0F2',
+    'text': '#FFFFFF',
+    'text_secondary': '#B0B0B0',  # 提高亮度，让 Tab 标题更清晰
+    'text_on_accent': '#000000',
+    'border': 'rgba(255, 255, 255, 0.08)',
+    'border_strong': 'rgba(255, 255, 255, 0.15)',
+    'control': 'rgba(255, 255, 255, 0.06)',
+    'titlebar_hover': 'rgba(255, 255, 255, 0.08)',
+    'close_hover': '#E81123',
+    'card_bg': 'rgba(50, 50, 50, 0.65)',
+    'input_bg': 'rgba(60, 60, 60, 0.7)',
+    'input_hover': 'rgba(70, 70, 70, 0.85)',
+}
 
-QWidget {{
-    font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
-    font-size: 13px;
-    color: {COLORS['text_primary']};
-}}
-"""
+# 当前使用的配色（默认浅色）
+COLORS = COLORS_LIGHT.copy()
 
-# 按钮样式
-BUTTON_STYLE = f"""
-QPushButton {{
-    background-color: {COLORS['primary']};
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 8px 16px;
-    font-size: 13px;
-    font-weight: 500;
-    min-height: 32px;
-}}
-
-QPushButton:hover {{
-    background-color: {COLORS['primary_hover']};
-}}
-
-QPushButton:pressed {{
-    background-color: {COLORS['primary_pressed']};
-}}
-
-QPushButton:disabled {{
-    background-color: {COLORS['secondary']};
-    color: {COLORS['background']};
-}}
-"""
-
-# 次要按钮样式
-SECONDARY_BUTTON_STYLE = f"""
-QPushButton {{
-    background-color: {COLORS['surface']};
-    color: {COLORS['primary']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 4px;
-    padding: 8px 16px;
-    font-size: 13px;
-    min-height: 32px;
-}}
-
-QPushButton:hover {{
-    background-color: {COLORS['background']};
-    border-color: {COLORS['primary']};
-}}
-
-QPushButton:pressed {{
-    background-color: {COLORS['border']};
-}}
-
-QPushButton:disabled {{
-    color: {COLORS['secondary']};
-    border-color: {COLORS['border']};
-}}
-"""
-
-# 进度条样式
-PROGRESS_BAR_STYLE = f"""
-QProgressBar {{
-    background-color: {COLORS['progress_bg']};
-    border: none;
-    border-radius: 4px;
-    height: 8px;
-    text-align: center;
-}}
-
-QProgressBar::chunk {{
-    background-color: {COLORS['progress_fill']};
-    border-radius: 4px;
-}}
-"""
-
-# 标签样式
-LABEL_STYLE = f"""
-QLabel {{
-    color: {COLORS['text_primary']};
-    font-size: 13px;
-}}
-"""
-
-# 标题标签样式
-TITLE_LABEL_STYLE = f"""
-QLabel {{
-    color: {COLORS['text_primary']};
-    font-size: 18px;
-    font-weight: 600;
-}}
-"""
-
-# 次要标签样式
-SECONDARY_LABEL_STYLE = f"""
-QLabel {{
-    color: {COLORS['text_secondary']};
-    font-size: 12px;
-}}
-"""
-
-# 输入框样式
-LINE_EDIT_STYLE = f"""
-QLineEdit {{
-    background-color: {COLORS['surface']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 4px;
-    padding: 8px 12px;
-    font-size: 13px;
-    color: {COLORS['text_primary']};
-}}
-
-QLineEdit:focus {{
-    border-color: {COLORS['primary']};
-}}
-
-QLineEdit:disabled {{
-    background-color: {COLORS['background']};
-    color: {COLORS['text_secondary']};
-}}
-"""
-
-# 分组框样式
-GROUP_BOX_STYLE = f"""
-QGroupBox {{
-    background-color: {COLORS['surface']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 6px;
-    margin-top: 12px;
-    padding: 16px;
-    font-size: 13px;
-    font-weight: 500;
-}}
-
-QGroupBox::title {{
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    left: 12px;
-    padding: 0 8px;
-    color: {COLORS['text_primary']};
-}}
-"""
-
-# 滚动区域样式
-SCROLL_AREA_STYLE = f"""
-QScrollArea {{
-    background-color: {COLORS['surface']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 6px;
-}}
-
-QScrollArea > QWidget > QWidget {{
-    background-color: {COLORS['surface']};
-}}
-
-QScrollBar:vertical {{
-    background-color: {COLORS['background']};
-    width: 8px;
-    border-radius: 4px;
-}}
-
-QScrollBar::handle:vertical {{
-    background-color: {COLORS['secondary']};
-    border-radius: 4px;
-    min-height: 30px;
-}}
-
-QScrollBar::handle:vertical:hover {{
-    background-color: {COLORS['primary']};
-}}
-
-QScrollBar::add-line:vertical,
-QScrollBar::sub-line:vertical {{
-    height: 0px;
-}}
-
-QScrollBar:horizontal {{
-    background-color: {COLORS['background']};
-    height: 8px;
-    border-radius: 4px;
-}}
-
-QScrollBar::handle:horizontal {{
-    background-color: {COLORS['secondary']};
-    border-radius: 4px;
-    min-width: 30px;
-}}
-
-QScrollBar::handle:horizontal:hover {{
-    background-color: {COLORS['primary']};
-}}
-
-QScrollBar::add-line:horizontal,
-QScrollBar::sub-line:horizontal {{
-    width: 0px;
-}}
-"""
-
-# 预览卡片样式
-PREVIEW_CARD_STYLE = f"""
-QFrame {{
-    background-color: {COLORS['surface']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 6px;
-}}
-
-QFrame:hover {{
-    border-color: {COLORS['primary']};
-}}
-"""
-
-# 管理员模式标识样式
-ADMIN_BADGE_STYLE = f"""
-QLabel {{
-    background-color: {COLORS['warning']};
-    color: white;
-    font-size: 11px;
-    font-weight: 600;
-    padding: 4px 8px;
-    border-radius: 3px;
-}}
-"""
-
-# 状态栏样式
-STATUS_BAR_STYLE = f"""
-QStatusBar {{
-    background-color: {COLORS['surface']};
-    border-top: 1px solid {COLORS['border']};
-    color: {COLORS['text_secondary']};
-    font-size: 12px;
-}}
-"""
-
-# 工具提示样式
-TOOLTIP_STYLE = f"""
-QToolTip {{
-    background-color: {COLORS['text_primary']};
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 6px 10px;
-    font-size: 12px;
-}}
-"""
+def set_dark_mode(dark: bool):
+    """切换深色/浅色模式"""
+    global COLORS
+    COLORS.clear()
+    COLORS.update(COLORS_DARK if dark else COLORS_LIGHT)
 
 
-def get_full_stylesheet() -> str:
-    """获取完整的应用样式表"""
-    return (
-        MAIN_WINDOW_STYLE +
-        BUTTON_STYLE +
-        PROGRESS_BAR_STYLE +
-        LABEL_STYLE +
-        LINE_EDIT_STYLE +
-        GROUP_BOX_STYLE +
-        SCROLL_AREA_STYLE +
-        STATUS_BAR_STYLE +
-        TOOLTIP_STYLE
-    )
-
-
-def apply_button_style(button, style_type: str = 'primary') -> None:
+def get_stylesheet(dark_mode: bool = False) -> str:
+    """获取全局样式表"""
+    c = COLORS_DARK if dark_mode else COLORS_LIGHT
+    return f"""
+        * {{ font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; font-size: 13px; }}
+        QMainWindow, QWidget#central {{ background: transparent; }}
+        QWidget {{ background: transparent; }}
+        QLabel {{ color: {c['text']}; background: transparent; border: none; }}
+        
+        QFrame#card {{
+            background: {c['card_bg']};
+            border: none;
+            border-radius: 8px;
+        }}
+        
+        QLineEdit {{
+            background: {c['input_bg']};
+            border: 1px solid {c['border']};
+            border-radius: 4px;
+            padding: 8px 12px;
+            color: {c['text']};
+        }}
+        QLineEdit:hover {{ background: {c['input_hover']}; }}
+        QLineEdit:focus {{ border-color: {c['accent']}; }}
+        
+        QComboBox {{
+            background: {c['input_bg']};
+            border: 1px solid {c['border']};
+            border-radius: 4px;
+            padding: 8px 12px;
+            padding-right: 30px;
+            color: {c['text']};
+        }}
+        QComboBox:hover {{ background: {c['input_hover']}; }}
+        QComboBox::drop-down {{ border: none; width: 30px; }}
+        QComboBox::down-arrow {{ image: none; }}
+        QComboBox QAbstractItemView {{
+            background: {c['input_hover']};
+            border: 1px solid {c['border']};
+            border-radius: 6px;
+            padding: 4px;
+            selection-background-color: {c['accent']};
+            selection-color: {c['text_on_accent']};
+        }}
+        
+        QSpinBox {{
+            background: {c['input_bg']};
+            border: 1px solid {c['border']};
+            border-radius: 4px;
+            padding: 6px 10px;
+            color: {c['text']};
+        }}
+        QSpinBox::up-button, QSpinBox::down-button {{ background: transparent; border: none; width: 20px; }}
+        
+        QSlider {{ background: transparent; border: none; min-height: 24px; }}
+        QSlider::groove:horizontal {{ background: {c['border_strong']}; height: 4px; border-radius: 2px; }}
+        QSlider::handle:horizontal {{ background: {c['accent']}; width: 18px; height: 18px; margin: -7px 0; border-radius: 9px; }}
+        QSlider::sub-page:horizontal {{ background: {c['accent']}; border-radius: 2px; }}
+        
+        QProgressBar {{ background: {c['border_strong']}; border: none; border-radius: 2px; height: 4px; }}
+        QProgressBar::chunk {{ background: {c['accent']}; border-radius: 2px; }}
+        
+        QScrollArea {{ background: transparent; border: none; }}
+        QScrollBar:vertical {{ background: transparent; width: 10px; border: none; }}
+        QScrollBar::handle:vertical {{ background: {c['border_strong']}; border-radius: 5px; min-height: 30px; margin: 2px; }}
+        QScrollBar::handle:vertical:hover {{ background: {c['text_secondary']}; }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+        
+        QTabWidget {{ background: transparent; border: none; }}
+        QTabWidget::pane {{ background: transparent; border: none; }}
+        QTabBar {{ background: transparent; border: none; }}
+        QTabBar::tab {{
+            background: transparent;
+            color: {c['text_secondary']};
+            padding: 10px 20px;
+            margin-right: 4px;
+            border: none;
+            border-bottom: 2px solid transparent;
+        }}
+        QTabBar::tab:selected {{ color: {c['accent']}; border-bottom-color: {c['accent']}; }}
+        QTabBar::tab:hover:!selected {{ color: {c['text']}; background: {c['titlebar_hover']}; }}
     """
-    为按钮应用指定样式
+
+
+def get_button_styles(dark_mode: bool = False):
+    """获取按钮样式"""
+    c = COLORS_DARK if dark_mode else COLORS_LIGHT
     
-    Args:
-        button: QPushButton实例
-        style_type: 'primary' 或 'secondary'
+    primary = f"""
+        QPushButton {{
+            background: {c['accent']};
+            color: {c['text_on_accent']};
+            border: none;
+            border-radius: 4px;
+            padding: 8px 20px;
+            font-weight: 500;
+        }}
+        QPushButton:hover {{ background: {c['accent_hover']}; }}
+        QPushButton:pressed {{ background: {c['accent_pressed']}; }}
+        QPushButton:disabled {{ background: {c['border_strong']}; color: {c['text_secondary']}; }}
     """
-    if style_type == 'secondary':
-        button.setStyleSheet(SECONDARY_BUTTON_STYLE)
-    else:
-        button.setStyleSheet(BUTTON_STYLE)
-
-
-def apply_label_style(label, style_type: str = 'primary') -> None:
-    """
-    为标签应用指定样式
     
-    Args:
-        label: QLabel实例
-        style_type: 'primary', 'secondary', 或 'title'
+    secondary = f"""
+        QPushButton {{
+            background: {c['control']};
+            color: {c['text']};
+            border: 1px solid {c['border']};
+            border-radius: 4px;
+            padding: 8px 16px;
+        }}
+        QPushButton:hover {{ background: {c['input_hover']}; }}
+        QPushButton:pressed {{ background: {c['input_bg']}; }}
+        QPushButton:checked {{ background: {c['accent']}; color: {c['text_on_accent']}; border-color: {c['accent']}; }}
+        QPushButton:disabled {{ color: {c['text_secondary']}; }}
     """
-    if style_type == 'title':
-        label.setStyleSheet(TITLE_LABEL_STYLE)
-    elif style_type == 'secondary':
-        label.setStyleSheet(SECONDARY_LABEL_STYLE)
-    else:
-        label.setStyleSheet(LABEL_STYLE)
+    
+    return primary, secondary
+
+
+# 默认按钮样式（浅色模式）
+PRIMARY_BTN = f"""
+    QPushButton {{
+        background: {COLORS_LIGHT['accent']};
+        color: {COLORS_LIGHT['text_on_accent']};
+        border: none;
+        border-radius: 4px;
+        padding: 8px 20px;
+        font-weight: 500;
+    }}
+    QPushButton:hover {{ background: {COLORS_LIGHT['accent_hover']}; }}
+    QPushButton:pressed {{ background: {COLORS_LIGHT['accent_pressed']}; }}
+    QPushButton:disabled {{ background: rgba(0,0,0,0.1); color: rgba(0,0,0,0.3); }}
+"""
+
+SECONDARY_BTN = f"""
+    QPushButton {{
+        background: rgba(255,255,255,0.6);
+        color: {COLORS_LIGHT['text']};
+        border: 1px solid {COLORS_LIGHT['border']};
+        border-radius: 4px;
+        padding: 8px 16px;
+    }}
+    QPushButton:hover {{ background: rgba(255,255,255,0.8); }}
+    QPushButton:pressed {{ background: rgba(255,255,255,0.95); }}
+    QPushButton:checked {{ background: {COLORS_LIGHT['accent']}; color: white; border-color: {COLORS_LIGHT['accent']}; }}
+    QPushButton:disabled {{ color: rgba(0,0,0,0.3); }}
+"""
+
+# 标题栏按钮
+TITLEBAR_BTN = f"""
+    QPushButton {{
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        color: {COLORS_LIGHT['text']};
+        font-size: 10px;
+        font-family: "Segoe MDL2 Assets", "Segoe UI Symbol", sans-serif;
+    }}
+    QPushButton:hover {{ background: {COLORS_LIGHT['titlebar_hover']}; }}
+    QPushButton:pressed {{ background: rgba(0, 0, 0, 0.1); }}
+"""
+
+CLOSE_BTN = f"""
+    QPushButton {{
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        color: {COLORS_LIGHT['text']};
+        font-size: 10px;
+        font-family: "Segoe MDL2 Assets", "Segoe UI Symbol", sans-serif;
+    }}
+    QPushButton:hover {{ background: {COLORS_LIGHT['close_hover']}; color: white; }}
+    QPushButton:pressed {{ background: #F1707A; color: white; }}
+"""
+
+# 卡片样式
+def get_card_style(opacity: int = 200) -> str:
+    alpha = min(0.5 + (255 - opacity) / 255 * 0.35, 0.85)
+    return f"background: rgba(255,255,255,{alpha}); border: 1px solid {COLORS_LIGHT['border']}; border-radius: 8px;"
+
+# 文字样式 - 动态获取
+def get_subtitle_style(dark_mode: bool = False) -> str:
+    c = COLORS_DARK if dark_mode else COLORS_LIGHT
+    return f"font-size: 14px; font-weight: 600; color: {c['text']};"
+
+def get_caption_style(dark_mode: bool = False) -> str:
+    c = COLORS_DARK if dark_mode else COLORS_LIGHT
+    return f"font-size: 12px; color: {c['text_secondary']};"
+
+# 默认样式（浅色模式）
+TITLE_STYLE = f"font-size: 22px; font-weight: 600; color: {COLORS_LIGHT['text']};"
+SUBTITLE_STYLE = f"font-size: 14px; font-weight: 600; color: {COLORS_LIGHT['text']};"
+CAPTION_STYLE = f"font-size: 12px; color: {COLORS_LIGHT['text_secondary']};"
+
+# 胶囊形 Toggle 开关样式
+def get_toggle_style(dark_mode: bool = False) -> str:
+    c = COLORS_DARK if dark_mode else COLORS_LIGHT
+    # 关闭状态：灰色背景
+    # 开启状态：accent 颜色背景
+    return f"""
+        QPushButton {{
+            background: {c['border_strong']};
+            border: none;
+            border-radius: 11px;
+            min-width: 44px;
+            max-width: 44px;
+            min-height: 22px;
+            max-height: 22px;
+            padding: 0px;
+        }}
+        QPushButton:checked {{
+            background: {c['accent']};
+        }}
+    """

@@ -1,17 +1,7 @@
-# UI components for image color classifier
+# UI 模块
 
-from .styles import (
-    COLORS,
-    get_full_stylesheet,
-    apply_button_style,
-    apply_label_style,
-)
 from .main_window import MainWindow
+from .styles import COLORS, get_stylesheet
+from .win_effects import enable_acrylic, enable_rounded_corners
 
-__all__ = [
-    'COLORS',
-    'get_full_stylesheet',
-    'apply_button_style',
-    'apply_label_style',
-    'MainWindow',
-]
+__all__ = ['MainWindow', 'COLORS', 'get_stylesheet', 'enable_acrylic', 'enable_rounded_corners']

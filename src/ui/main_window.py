@@ -1,692 +1,1000 @@
 """
-主窗口模块
-
-实现图片颜色分类器的主界面，采用扁平简约设计风格。
-支持简单模式和高级模式两种分类算法。
+主窗口 - Fluent Design 风格
 """
 
-import ctypes
 import os
 import sys
-from typing import Optional
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings, QPoint, QPropertyAnimation, QEasingCurve, QRect, QSequentialAnimationGroup, QParallelAnimationGroup
 from PyQt6.QtWidgets import (
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QLabel,
-    QLineEdit,
-    QProgressBar,
-    QFileDialog,
-    QMessageBox,
-    QScrollArea,
-    QFrame,
-    QGridLayout,
-    QGroupBox,
-    QSizePolicy,
-    QComboBox,
-    QSlider,
-    QSpinBox,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QPushButton, QLabel, QLineEdit, QProgressBar, QFileDialog,
+    QMessageBox, QScrollArea, QFrame, QComboBox, QSlider, QSpinBox,
+    QTabWidget, QGraphicsOpacityEffect, QGraphicsColorizeEffect,
 )
-from PyQt6.QtGui import QPixmap, QIcon
+from PyQt6.QtGui import QPixmap, QMouseEvent, QColor, QPainter, QBrush
 
 from .styles import (
-    get_full_stylesheet,
-    apply_button_style,
-    apply_label_style,
-    SECONDARY_BUTTON_STYLE,
-    PREVIEW_CARD_STYLE,
-    ADMIN_BADGE_STYLE,
-    COLORS,
+    get_stylesheet, get_card_style, COLORS, COLORS_LIGHT, COLORS_DARK,
+    PRIMARY_BTN, SECONDARY_BTN, TITLEBAR_BTN, CLOSE_BTN,
+    SUBTITLE_STYLE, CAPTION_STYLE, get_button_styles, set_dark_mode,
+    get_subtitle_style, get_caption_style, get_toggle_style,
 )
+from .win_effects import enable_acrylic, enable_rounded_corners
+
 from core.engine import ClassificationEngine
 from core.advanced_engine import AdvancedClassificationEngine
 from core.preview_generator import PreviewGenerator
-from core.models import (
-    ClassificationResult, 
-    RollbackResult,
-    AdvancedClassificationResult,
-    FeatureWeights,
-)
+from core.models import AdvancedClassificationResult, FeatureWeights
 
 
-class ClassificationWorker(QThread):
-    """分类工作线程，避免阻塞UI"""
-    
-    progress_updated = pyqtSignal(int, int, str)
-    finished = pyqtSignal(object)  # ClassificationResult or AdvancedClassificationResult
+class Worker(QThread):
+    """分类工作线程"""
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(object)
     error = pyqtSignal(str)
     
-    def __init__(self, engine, source_path: str, target_path: Optional[str] = None, 
-                 n_clusters: Optional[int] = None, is_advanced: bool = False):
+    def __init__(self, engine, source, target=None, n_clusters=None, advanced=False):
         super().__init__()
-        self.engine = engine
-        self.source_path = source_path
-        self.target_path = target_path
-        self.n_clusters = n_clusters
-        self.is_advanced = is_advanced
+        self.engine, self.source, self.target = engine, source, target
+        self.n_clusters, self.advanced = n_clusters, advanced
     
     def run(self):
         try:
-            if self.is_advanced:
-                result = self.engine.classify(
-                    self.source_path,
-                    self.target_path,
-                    n_clusters=self.n_clusters,
-                    progress_callback=self._on_progress
-                )
+            cb = lambda c, t, f: self.progress.emit(c, t, f)
+            if self.advanced:
+                r = self.engine.classify(self.source, self.target, n_clusters=self.n_clusters, progress_callback=cb)
             else:
-                result = self.engine.classify(
-                    self.source_path,
-                    self.target_path,
-                    progress_callback=self._on_progress
-                )
-            self.finished.emit(result)
+                r = self.engine.classify(self.source, self.target, progress_callback=cb)
+            self.finished.emit(r)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class TitleBar(QFrame):
+    """自定义标题栏 - 使用 QFrame 确保有背景可以接收鼠标事件"""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent_window = parent
+        self._drag_pos = None
+        self._dragging = False
+        self.setFixedHeight(40)
+        self.setObjectName("titlebar")
+        # 使用半透明背景，保持亚克力效果可见
+        self.setStyleSheet("""
+            QFrame#titlebar {
+                background-color: rgba(255, 255, 255, 0.3);
+                border: none;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+            }
+        """)
+        self._init_ui()
     
-    def _on_progress(self, current: int, total: int, current_file: str):
-        self.progress_updated.emit(current, total, current_file)
+    def _init_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # 标题
+        self.title = QLabel("图片颜色分类器")
+        self.title.setStyleSheet(f"font-size: 13px; color: {COLORS['text']}; background: transparent;")
+        layout.addWidget(self.title)
+        layout.addStretch()
+        
+        # 窗口控制按钮
+        self._min_btn = QPushButton("─")
+        self._min_btn.setObjectName("minBtn")
+        self._min_btn.setFixedSize(46, 40)
+        self._min_btn.clicked.connect(self._on_minimize)
+        layout.addWidget(self._min_btn)
+        
+        self._max_btn = QPushButton("□")
+        self._max_btn.setObjectName("maxBtn")
+        self._max_btn.setFixedSize(46, 40)
+        self._max_btn.clicked.connect(self._on_maximize)
+        layout.addWidget(self._max_btn)
+        
+        self._close_btn = QPushButton("✕")
+        self._close_btn.setObjectName("closeBtn")
+        self._close_btn.setFixedSize(46, 40)
+        self._close_btn.clicked.connect(self._on_close)
+        layout.addWidget(self._close_btn)
+        
+        # 按钮样式
+        btn_style = f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                color: {COLORS['text']};
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background: rgba(0, 0, 0, 0.08);
+            }}
+            QPushButton:pressed {{
+                background: rgba(0, 0, 0, 0.15);
+            }}
+        """
+        close_style = f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                color: {COLORS['text']};
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background: #E81123;
+                color: white;
+            }}
+            QPushButton:pressed {{
+                background: #F1707A;
+                color: white;
+            }}
+        """
+        self._min_btn.setStyleSheet(btn_style)
+        self._max_btn.setStyleSheet(btn_style)
+        self._close_btn.setStyleSheet(close_style)
+    
+    def _on_minimize(self):
+        self.parent_window.showMinimized()
+    
+    def _on_maximize(self):
+        if self.parent_window.isMaximized():
+            self.parent_window.showNormal()
+            self._max_btn.setText("□")
+        else:
+            self.parent_window.showMaximized()
+            self._max_btn.setText("❐")
+    
+    def _on_close(self):
+        self.parent_window.close()
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            # 检查是否点击在按钮上
+            click_pos = event.position().toPoint()
+            for btn in [self._min_btn, self._max_btn, self._close_btn]:
+                if btn.geometry().contains(click_pos):
+                    # 点击在按钮上，不处理拖拽
+                    super().mousePressEvent(event)
+                    return
+            
+            # 开始拖拽
+            self._dragging = True
+            self._drag_pos = event.globalPosition().toPoint() - self.parent_window.frameGeometry().topLeft()
+            event.accept()
+    
+    def mouseMoveEvent(self, event):
+        if self._dragging and self._drag_pos is not None:
+            # 如果窗口是最大化状态，先还原
+            if self.parent_window.isMaximized():
+                # 计算鼠标在标题栏中的相对位置比例
+                ratio = event.position().x() / self.width()
+                self.parent_window.showNormal()
+                self._max_btn.setText("□")
+                # 根据比例重新计算拖拽位置
+                new_width = self.parent_window.width()
+                new_x = int(new_width * ratio)
+                self._drag_pos.setX(new_x)
+                self._drag_pos.setY(20)  # 标题栏中间位置
+            
+            new_pos = event.globalPosition().toPoint() - self._drag_pos
+            self.parent_window.move(new_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            self._drag_pos = None
+        event.accept()
+    
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            # 检查是否双击在按钮上
+            click_pos = event.position().toPoint()
+            for btn in [self._min_btn, self._max_btn, self._close_btn]:
+                if btn.geometry().contains(click_pos):
+                    super().mouseDoubleClickEvent(event)
+                    return
+            # 双击标题栏切换最大化
+            self._on_maximize()
+            event.accept()
+
+
+class AnimatedToggle(QWidget):
+    """带动画的胶囊形 Toggle 开关"""
+    toggled = pyqtSignal(bool)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(44, 22)
+        self._checked = False
+        self._dark_mode = False
+        
+        # 背景
+        self._bg = QFrame(self)
+        self._bg.setGeometry(0, 0, 44, 22)
+        self._bg.setStyleSheet(self._get_bg_style())
+        
+        # 滑块
+        self._knob = QFrame(self)
+        self._knob.setFixedSize(18, 18)
+        self._knob.move(2, 2)
+        self._knob.setStyleSheet("background: white; border-radius: 9px;")
+        
+        # 滑块动画 - 稍微减慢
+        self._knob_anim = QPropertyAnimation(self._knob, b"geometry")
+        self._knob_anim.setDuration(200)
+        self._knob_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+    
+    def _get_bg_style(self):
+        c = COLORS_DARK if self._dark_mode else COLORS_LIGHT
+        if self._checked:
+            return f"background: {c['accent']}; border: none; border-radius: 11px;"
+        else:
+            return f"background: {c['border_strong']}; border: none; border-radius: 11px;"
+    
+    def setChecked(self, checked: bool):
+        self._checked = checked
+        self._update_position(animate=False)
+        self._bg.setStyleSheet(self._get_bg_style())
+    
+    def isChecked(self) -> bool:
+        return self._checked
+    
+    def setDarkMode(self, dark: bool):
+        self._dark_mode = dark
+        self._bg.setStyleSheet(self._get_bg_style())
+    
+    def _update_position(self, animate: bool = True):
+        start = QRect(2, 2, 18, 18)
+        end = QRect(24, 2, 18, 18)
+        
+        if self._checked:
+            target = end
+        else:
+            target = start
+        
+        if animate:
+            self._knob_anim.setStartValue(self._knob.geometry())
+            self._knob_anim.setEndValue(target)
+            self._knob_anim.start()
+        else:
+            self._knob.setGeometry(target)
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._checked = not self._checked
+            self._update_position(animate=True)
+            self._bg.setStyleSheet(self._get_bg_style())
+            self.toggled.emit(self._checked)
+            event.accept()
+
+
+class RippleOverlay(QWidget):
+    """涟漪过渡效果覆盖层"""
+    finished = pyqtSignal()
+    
+    def __init__(self, parent, start_pos, target_color, duration=400):
+        super().__init__(parent)
+        self.setGeometry(parent.rect())
+        self._start_pos = start_pos
+        self._target_color = target_color
+        self._radius = 0
+        self._max_radius = int((parent.width() ** 2 + parent.height() ** 2) ** 0.5)
+        self._opacity = 1.0
+        
+        # 扩散动画
+        self._expand_anim = QPropertyAnimation(self, b"radius")
+        self._expand_anim.setDuration(duration)
+        self._expand_anim.setStartValue(0)
+        self._expand_anim.setEndValue(self._max_radius)
+        self._expand_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
+        self._expand_anim.finished.connect(self._on_expand_finished)
+        
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.show()
+        self.raise_()
+    
+    def start(self):
+        self._expand_anim.start()
+    
+    def _on_expand_finished(self):
+        self.finished.emit()
+        self.deleteLater()
+    
+    @property
+    def radius(self):
+        return self._radius
+    
+    @radius.setter
+    def radius(self, value):
+        self._radius = value
+        self.update()
+    
+    # 为 QPropertyAnimation 提供属性
+    radius = property(lambda self: self._radius, lambda self, v: (setattr(self, '_radius', v), self.update()))
+    
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QBrush(self._target_color))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(self._start_pos, int(self._radius), int(self._radius))
+
+
+class Card(QFrame):
+    """卡片组件"""
+    def __init__(self, title=None, parent=None):
+        super().__init__(parent)
+        self.setObjectName("card")
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(20, 16, 20, 20)
+        self._layout.setSpacing(16)  # 增加间距
+        self._title_label = None
+        if title:
+            self._title_label = QLabel(title)
+            self._title_label.setStyleSheet(SUBTITLE_STYLE)
+            self._layout.addWidget(self._title_label)
+    
+    def addWidget(self, w): self._layout.addWidget(w)
+    def addLayout(self, l): self._layout.addLayout(l)
+    
+    def update_title_style(self, dark_mode: bool):
+        """更新标题样式"""
+        if self._title_label:
+            self._title_label.setStyleSheet(get_subtitle_style(dark_mode))
 
 
 class MainWindow(QMainWindow):
-    """
-    应用主窗口，扁平简约设计
-    
-    提供文件夹选择、分类控制、进度显示和预览功能。
-    支持简单模式和高级模式两种分类算法。
-    """
+    """主窗口"""
     
     def __init__(self):
         super().__init__()
         self._engine = ClassificationEngine()
-        self._advanced_engine = AdvancedClassificationEngine()
-        self._preview_generator = PreviewGenerator()
-        self._worker: Optional[ClassificationWorker] = None
-        self._is_admin = self.check_admin_mode()
-        self._last_result = None  # ClassificationResult or AdvancedClassificationResult
-        self._is_advanced_mode = False
+        self._adv_engine = AdvancedClassificationEngine()
+        self._preview_gen = PreviewGenerator()
+        self._worker = None
+        self._advanced = False
         
-        self.setup_ui()
-        self.apply_flat_style()
+        self._settings = QSettings("ColorClassifier", "Settings")
+        self._opacity = self._settings.value("opacity", 120, int)
+        self._blur_color = self._settings.value("blur_color", 0xE8E8E8, int)
+        self._dark_mode = self._settings.value("dark_mode", False, bool)
+        
+        # 应用主题
+        set_dark_mode(self._dark_mode)
+        
+        self._init_window()
+        self._init_ui()
+        QTimer.singleShot(100, self._apply_effects)
     
-    def setup_ui(self) -> None:
-        """设置UI组件"""
+    def _init_window(self):
         self.setWindowTitle("图片颜色分类器")
-        self.setMinimumSize(800, 600)
-        self.resize(900, 700)
-        
-        # 创建中央部件
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        
-        # 主布局
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(24, 24, 24, 24)
-        main_layout.setSpacing(16)
-        
-        # 标题区域
-        self._setup_header(main_layout)
-        
-        # 路径选择区域
-        self._setup_path_selection(main_layout)
-        
-        # 模式选择和高级设置区域
-        self._setup_mode_selection(main_layout)
-        
-        # 控制按钮区域
-        self._setup_controls(main_layout)
-        
-        # 进度显示区域
-        self._setup_progress(main_layout)
-        
-        # 预览区域
-        self._setup_preview(main_layout)
-        
-        # 更新按钮状态
-        self._update_button_states()
+        self.setMinimumSize(950, 720)
+        self.resize(1000, 780)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setStyleSheet(get_stylesheet(self._dark_mode))
     
-    def _setup_header(self, layout: QVBoxLayout) -> None:
-        """设置标题区域"""
-        header_layout = QHBoxLayout()
+    def _apply_effects(self):
+        enable_rounded_corners(self)
+        color = (self._opacity << 24) | (self._blur_color & 0x00FFFFFF)
+        if not enable_acrylic(self, color):
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            fallback = "#202020" if self._dark_mode else "#F0F0F0"
+            self.setStyleSheet(get_stylesheet(self._dark_mode) + f"QMainWindow{{background:{fallback};}}")
         
-        # 标题
-        title_label = QLabel("图片颜色分类器")
-        apply_label_style(title_label, 'title')
-        header_layout.addWidget(title_label)
-        
-        header_layout.addStretch()
-        
-        # 管理员模式标识
-        if self._is_admin:
-            admin_badge = QLabel("管理员模式")
-            admin_badge.setStyleSheet(ADMIN_BADGE_STYLE)
-            header_layout.addWidget(admin_badge)
-        
-        layout.addLayout(header_layout)
+        # 更新标题栏和内容区域的透明度
+        self._update_theme_styles()
     
-    def _setup_path_selection(self, layout: QVBoxLayout) -> None:
-        """设置路径选择区域"""
-        path_group = QGroupBox("选择文件夹")
-        path_layout = QHBoxLayout(path_group)
+    def _update_theme_styles(self):
+        """更新主题相关的样式"""
+        c = COLORS_DARK if self._dark_mode else COLORS_LIGHT
         
-        # 路径输入框
+        # 计算基于透明度的 alpha 值 (opacity 30-200 映射到 0.2-0.6)
+        alpha = 0.2 + (self._opacity - 30) / 170 * 0.4
+        
+        # 更新标题栏样式
+        if self._dark_mode:
+            titlebar_bg = f"rgba(30, 30, 30, {alpha})"
+            content_bg = f"rgba(40, 40, 40, {alpha + 0.1})"
+        else:
+            titlebar_bg = f"rgba(255, 255, 255, {alpha})"
+            content_bg = f"rgba(255, 255, 255, {alpha + 0.1})"
+        
+        self._titlebar.setStyleSheet(f"""
+            QFrame#titlebar {{
+                background-color: {titlebar_bg};
+                border: none;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+            }}
+        """)
+        self._titlebar.title.setStyleSheet(f"font-size: 13px; color: {c['text']}; background: transparent;")
+        
+        # 更新标题栏按钮样式
+        btn_style = f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                color: {c['text']};
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background: {c['titlebar_hover']};
+            }}
+            QPushButton:pressed {{
+                background: {c['border_strong']};
+            }}
+        """
+        close_style = f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                color: {c['text']};
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background: #E81123;
+                color: white;
+            }}
+            QPushButton:pressed {{
+                background: #F1707A;
+                color: white;
+            }}
+        """
+        self._titlebar._min_btn.setStyleSheet(btn_style)
+        self._titlebar._max_btn.setStyleSheet(btn_style)
+        self._titlebar._close_btn.setStyleSheet(close_style)
+        
+        # 更新内容区域样式
+        self._content_frame.setStyleSheet(f"""
+            QFrame#contentFrame {{
+                background-color: {content_bg};
+                border-bottom-left-radius: 8px;
+                border-bottom-right-radius: 8px;
+            }}
+        """)
+    
+    def _init_ui(self):
+        central = QWidget()
+        central.setObjectName("central")
+        self.setCentralWidget(central)
+        
+        main_layout = QVBoxLayout(central)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # 标题栏
+        self._titlebar = TitleBar(self)
+        main_layout.addWidget(self._titlebar)
+        
+        # 内容区域 - 使用半透明背景保持亚克力效果
+        self._content_frame = QFrame()
+        self._content_frame.setObjectName("contentFrame")
+        content_layout = QVBoxLayout(self._content_frame)
+        content_layout.setContentsMargins(24, 16, 24, 24)
+        content_layout.setSpacing(0)
+        
+        self._tabs = QTabWidget()
+        self._tabs.addTab(self._create_main_page(), "分类")
+        self._tabs.addTab(self._create_settings_page(), "设置")
+        content_layout.addWidget(self._tabs)
+        
+        main_layout.addWidget(self._content_frame, 1)
+        self._update_states()
+
+    
+    def _create_main_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 16, 0, 0)
+        layout.setSpacing(16)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 8, 0)
+        content_layout.setSpacing(16)
+        
+        self._setup_folder_card(content_layout)
+        self._setup_settings_card(content_layout)
+        self._setup_progress_card(content_layout)
+        self._setup_preview_card(content_layout)
+        
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        return page
+    
+    def _create_settings_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 16, 0, 0)
+        layout.setSpacing(16)
+        
+        self._settings_card = Card("外观设置")
+        
+        # 夜间模式切换 - 带动画的胶囊形 Toggle
+        row0 = QHBoxLayout()
+        row0.setContentsMargins(0, 4, 0, 4)
+        row0.addWidget(QLabel("夜间模式"))
+        row0.addStretch()
+        
+        self._dark_mode_toggle = AnimatedToggle()
+        self._dark_mode_toggle.setChecked(self._dark_mode)
+        self._dark_mode_toggle.setDarkMode(self._dark_mode)
+        self._dark_mode_toggle.toggled.connect(self._on_dark_mode_change)
+        row0.addWidget(self._dark_mode_toggle)
+        self._settings_card.addLayout(row0)
+        
+        # 透明度滑块 - 增加行高
+        row1 = QHBoxLayout()
+        row1.setContentsMargins(0, 4, 0, 4)
+        row1.addWidget(QLabel("亚克力透明度"))
+        row1.addStretch()
+        self._opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self._opacity_slider.setRange(30, 200)  # 更大范围
+        self._opacity_slider.setValue(self._opacity)
+        self._opacity_slider.setMinimumWidth(200)
+        self._opacity_slider.setMinimumHeight(24)
+        self._opacity_slider.valueChanged.connect(self._on_opacity_change)
+        row1.addWidget(self._opacity_slider)
+        self._opacity_label = QLabel(f"{self._opacity}")
+        self._opacity_label.setMinimumWidth(35)
+        row1.addWidget(self._opacity_label)
+        self._settings_card.addLayout(row1)
+        
+        # 颜色预设 - 增加行高
+        row2 = QHBoxLayout()
+        row2.setContentsMargins(0, 4, 0, 4)
+        row2.addWidget(QLabel("背景色调"))
+        row2.addStretch()
+        colors = [("浅灰", 0xE8E8E8), ("浅蓝", 0xF0E8D8), ("浅绿", 0xD8F0D8), ("浅紫", 0xE8D8F0)]
+        for name, color in colors:
+            btn = QPushButton(name)
+            btn.setStyleSheet(SECONDARY_BTN)
+            btn.setFixedSize(60, 32)
+            btn.clicked.connect(lambda _, c=color: self._set_blur_color(c))
+            row2.addWidget(btn)
+        self._settings_card.addLayout(row2)
+        
+        row3 = QHBoxLayout()
+        row3.addStretch()
+        reset_btn = QPushButton("恢复默认")
+        reset_btn.setStyleSheet(SECONDARY_BTN)
+        reset_btn.clicked.connect(self._reset_settings)
+        row3.addWidget(reset_btn)
+        self._settings_card.addLayout(row3)
+        
+        layout.addWidget(self._settings_card)
+        layout.addStretch()
+        return page
+    
+    def _on_opacity_change(self, value):
+        self._opacity = value
+        self._opacity_label.setText(str(value))
+        self._settings.setValue("opacity", value)
+        self._apply_effects()
+    
+    def _on_dark_mode_change(self, checked: bool = None):
+        if checked is not None:
+            self._dark_mode = checked
+        else:
+            self._dark_mode = self._dark_mode_toggle.isChecked()
+        self._settings.setValue("dark_mode", self._dark_mode)
+        
+        # 获取 Toggle 在窗口中的位置作为涟漪起点
+        toggle_pos = self._dark_mode_toggle.mapTo(self, QPoint(22, 11))
+        
+        # 创建涟漪效果
+        target_color = QColor(32, 32, 32, 200) if self._dark_mode else QColor(245, 245, 245, 200)
+        ripple = RippleOverlay(self.centralWidget(), toggle_pos, target_color, duration=350)
+        ripple.finished.connect(lambda: self._apply_theme_after_ripple())
+        ripple.start()
+        
+        # 更新 Toggle 样式
+        self._dark_mode_toggle.setDarkMode(self._dark_mode)
+    
+    def _apply_theme_after_ripple(self):
+        """涟漪动画完成后应用主题"""
+        # 更新全局颜色配置
+        set_dark_mode(self._dark_mode)
+        
+        # 更新全局样式表
+        self.setStyleSheet(get_stylesheet(self._dark_mode))
+        
+        # 更新主题相关样式
+        self._update_theme_styles()
+        
+        # 更新所有卡片标题样式
+        self._update_card_styles()
+        
+        # 重新应用亚克力效果
+        self._apply_effects()
+    
+    def _update_card_styles(self):
+        """更新所有卡片的标题样式"""
+        # 设置页面的卡片
+        if hasattr(self, '_settings_card'):
+            self._settings_card.update_title_style(self._dark_mode)
+        
+        # 遍历主页面的所有卡片
+        for card in self.findChildren(Card):
+            card.update_title_style(self._dark_mode)
+    
+    def _set_blur_color(self, color):
+        self._blur_color = color
+        self._settings.setValue("blur_color", color)
+        self._apply_effects()
+    
+    def _reset_settings(self):
+        self._opacity = 120
+        self._blur_color = 0xE8E8E8
+        self._dark_mode = False
+        self._opacity_slider.setValue(120)
+        self._dark_mode_toggle.setChecked(False)
+        self._dark_mode_toggle.setDarkMode(False)
+        self._settings.setValue("opacity", 120)
+        self._settings.setValue("blur_color", 0xE8E8E8)
+        self._settings.setValue("dark_mode", False)
+        set_dark_mode(False)
+        self.setStyleSheet(get_stylesheet(False))
+        self._update_theme_styles()
+        self._update_card_styles()
+        self._apply_effects()
+
+    
+    def _setup_folder_card(self, layout):
+        card = Card("选择文件夹")
+        
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        
         self._path_edit = QLineEdit()
-        self._path_edit.setPlaceholderText("请选择要分类的图片文件夹...")
+        self._path_edit.setPlaceholderText("点击浏览选择图片文件夹...")
         self._path_edit.setReadOnly(True)
-        path_layout.addWidget(self._path_edit)
+        self._path_edit.setMinimumHeight(38)
+        row.addWidget(self._path_edit, 1)
         
-        # 浏览按钮
-        self._browse_btn = QPushButton("浏览...")
-        self._browse_btn.setStyleSheet(SECONDARY_BUTTON_STYLE)
-        self._browse_btn.clicked.connect(self.on_select_folder)
-        path_layout.addWidget(self._browse_btn)
+        self._browse_btn = QPushButton("浏览")
+        self._browse_btn.setStyleSheet(SECONDARY_BTN)
+        self._browse_btn.setMinimumSize(80, 38)
+        self._browse_btn.clicked.connect(self._on_browse)
+        row.addWidget(self._browse_btn)
         
-        layout.addWidget(path_group)
+        card.addLayout(row)
+        
+        # 按钮放在卡片内部
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+        
+        self._start_btn = QPushButton("开始分类")
+        self._start_btn.setStyleSheet(PRIMARY_BTN)
+        self._start_btn.setMinimumSize(120, 40)
+        self._start_btn.clicked.connect(self._on_start)
+        btn_row.addWidget(self._start_btn)
+        
+        self._rollback_btn = QPushButton("撤销")
+        self._rollback_btn.setStyleSheet(SECONDARY_BTN)
+        self._rollback_btn.setMinimumSize(80, 40)
+        self._rollback_btn.clicked.connect(self._on_rollback)
+        btn_row.addWidget(self._rollback_btn)
+        
+        btn_row.addStretch()
+        card.addLayout(btn_row)
+        
+        layout.addWidget(card)
     
-    def _setup_mode_selection(self, layout: QVBoxLayout) -> None:
-        """设置模式选择和高级设置区域"""
-        mode_group = QGroupBox("分类设置")
-        mode_layout = QVBoxLayout(mode_group)
+    def _setup_settings_card(self, layout):
+        card = Card("分类设置")
         
-        # 模式选择行
-        mode_row = QHBoxLayout()
-        
-        mode_label = QLabel("分类模式:")
-        mode_row.addWidget(mode_label)
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        row.addWidget(QLabel("分类模式"))
         
         self._mode_combo = QComboBox()
-        self._mode_combo.addItem("简单模式 (按主色调分类)", False)
-        self._mode_combo.addItem("高级模式 (多维度特征分析)", True)
-        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        self._mode_combo.setMinimumWidth(200)
-        mode_row.addWidget(self._mode_combo)
+        self._mode_combo.addItem("简单模式 - 按主色调分类", False)
+        self._mode_combo.addItem("高级模式 - 多维度特征分析", True)
+        self._mode_combo.setMinimumSize(260, 38)
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_change)
+        row.addWidget(self._mode_combo)
+        row.addStretch()
+        card.addLayout(row)
         
-        mode_row.addStretch()
-        mode_layout.addLayout(mode_row)
+        # 高级面板
+        self._adv_panel = QWidget()
+        self._adv_panel.setVisible(False)
+        adv = QVBoxLayout(self._adv_panel)
+        adv.setContentsMargins(0, 12, 0, 0)
+        adv.setSpacing(12)
         
-        # 高级设置容器
-        self._advanced_settings = QWidget()
-        advanced_layout = QVBoxLayout(self._advanced_settings)
-        advanced_layout.setContentsMargins(0, 8, 0, 0)
-        
-        # 聚类数设置
-        cluster_row = QHBoxLayout()
-        cluster_label = QLabel("聚类数:")
-        cluster_row.addWidget(cluster_label)
-        
-        self._auto_cluster_check = QPushButton("自动")
-        self._auto_cluster_check.setCheckable(True)
-        self._auto_cluster_check.setChecked(True)
-        self._auto_cluster_check.setStyleSheet(SECONDARY_BUTTON_STYLE)
-        self._auto_cluster_check.clicked.connect(self._on_auto_cluster_toggled)
-        cluster_row.addWidget(self._auto_cluster_check)
-        
+        cr = QHBoxLayout()
+        cr.addWidget(QLabel("聚类数量"))
+        self._auto_btn = QPushButton("自动")
+        self._auto_btn.setCheckable(True)
+        self._auto_btn.setChecked(True)
+        self._auto_btn.setStyleSheet(SECONDARY_BTN)
+        self._auto_btn.setMinimumSize(70, 34)
+        self._auto_btn.clicked.connect(self._on_auto_toggle)
+        cr.addWidget(self._auto_btn)
         self._cluster_spin = QSpinBox()
         self._cluster_spin.setRange(2, 20)
         self._cluster_spin.setValue(5)
         self._cluster_spin.setEnabled(False)
-        self._cluster_spin.setMinimumWidth(60)
-        cluster_row.addWidget(self._cluster_spin)
+        self._cluster_spin.setMinimumSize(80, 34)
+        cr.addWidget(self._cluster_spin)
+        cr.addStretch()
+        adv.addLayout(cr)
         
-        cluster_row.addStretch()
-        advanced_layout.addLayout(cluster_row)
+        wl = QLabel("特征权重")
+        wl.setStyleSheet(CAPTION_STYLE)
+        adv.addWidget(wl)
         
-        # 特征权重设置
-        weights_row = QHBoxLayout()
+        grid = QGridLayout()
+        grid.setSpacing(12)
+        self._feature_sliders = {}
+        slider_names = [("hue", "色调", 40), ("lightness", "明度", 35), ("saturation", "饱和度", 25)]
+        for i, (key, name, default) in enumerate(slider_names):
+            grid.addWidget(QLabel(name), i, 0)
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(0, 100)
+            slider.setValue(default)
+            slider.setMinimumWidth(150)
+            grid.addWidget(slider, i, 1)
+            lbl = QLabel(f"{default}%")
+            lbl.setMinimumWidth(40)
+            grid.addWidget(lbl, i, 2)
+            slider.valueChanged.connect(lambda v, l=lbl: l.setText(f"{v}%"))
+            self._feature_sliders[key] = slider
         
-        # 色调权重
-        hue_label = QLabel("色调:")
-        weights_row.addWidget(hue_label)
-        self._hue_slider = QSlider(Qt.Orientation.Horizontal)
-        self._hue_slider.setRange(0, 100)
-        self._hue_slider.setValue(40)
-        self._hue_slider.setMaximumWidth(80)
-        weights_row.addWidget(self._hue_slider)
-        self._hue_value = QLabel("40%")
-        self._hue_value.setMinimumWidth(35)
-        weights_row.addWidget(self._hue_value)
-        self._hue_slider.valueChanged.connect(lambda v: self._hue_value.setText(f"{v}%"))
+        self._hue_slider = self._feature_sliders["hue"]
+        self._light_slider = self._feature_sliders["lightness"]
+        self._sat_slider = self._feature_sliders["saturation"]
+        adv.addLayout(grid)
         
-        # 明度权重
-        light_label = QLabel("明度:")
-        weights_row.addWidget(light_label)
-        self._lightness_slider = QSlider(Qt.Orientation.Horizontal)
-        self._lightness_slider.setRange(0, 100)
-        self._lightness_slider.setValue(35)
-        self._lightness_slider.setMaximumWidth(80)
-        weights_row.addWidget(self._lightness_slider)
-        self._lightness_value = QLabel("35%")
-        self._lightness_value.setMinimumWidth(35)
-        weights_row.addWidget(self._lightness_value)
-        self._lightness_slider.valueChanged.connect(lambda v: self._lightness_value.setText(f"{v}%"))
-        
-        # 饱和度权重
-        sat_label = QLabel("饱和度:")
-        weights_row.addWidget(sat_label)
-        self._saturation_slider = QSlider(Qt.Orientation.Horizontal)
-        self._saturation_slider.setRange(0, 100)
-        self._saturation_slider.setValue(25)
-        self._saturation_slider.setMaximumWidth(80)
-        weights_row.addWidget(self._saturation_slider)
-        self._saturation_value = QLabel("25%")
-        self._saturation_value.setMinimumWidth(35)
-        weights_row.addWidget(self._saturation_value)
-        self._saturation_slider.valueChanged.connect(lambda v: self._saturation_value.setText(f"{v}%"))
-        
-        weights_row.addStretch()
-        advanced_layout.addLayout(weights_row)
-        
-        self._advanced_settings.setVisible(False)
-        mode_layout.addWidget(self._advanced_settings)
-        
-        layout.addWidget(mode_group)
-    
-    def _on_mode_changed(self, index: int) -> None:
-        """模式切换回调"""
-        self._is_advanced_mode = self._mode_combo.currentData()
-        self._advanced_settings.setVisible(self._is_advanced_mode)
-    
-    def _on_auto_cluster_toggled(self) -> None:
-        """自动聚类切换回调"""
-        is_auto = self._auto_cluster_check.isChecked()
-        self._cluster_spin.setEnabled(not is_auto)
-        self._auto_cluster_check.setText("自动" if is_auto else "手动")
-    
-    def _setup_controls(self, layout: QVBoxLayout) -> None:
-        """设置控制按钮区域"""
-        controls_layout = QHBoxLayout()
-        controls_layout.setSpacing(12)
-        
-        # 开始分类按钮
-        self._start_btn = QPushButton("开始分类")
-        self._start_btn.setMinimumWidth(120)
-        apply_button_style(self._start_btn, 'primary')
-        self._start_btn.clicked.connect(self.on_start_classification)
-        controls_layout.addWidget(self._start_btn)
-        
-        # 回退按钮
-        self._rollback_btn = QPushButton("撤销分类")
-        self._rollback_btn.setMinimumWidth(120)
-        self._rollback_btn.setStyleSheet(SECONDARY_BUTTON_STYLE)
-        self._rollback_btn.clicked.connect(self.on_rollback)
-        controls_layout.addWidget(self._rollback_btn)
-        
-        controls_layout.addStretch()
-        
-        layout.addLayout(controls_layout)
+        card.addWidget(self._adv_panel)
+        layout.addWidget(card)
 
-    def _setup_progress(self, layout: QVBoxLayout) -> None:
-        """设置进度显示区域"""
-        progress_group = QGroupBox("处理进度")
-        progress_layout = QVBoxLayout(progress_group)
-        
-        # 进度条
-        self._progress_bar = QProgressBar()
-        self._progress_bar.setMinimum(0)
-        self._progress_bar.setMaximum(100)
-        self._progress_bar.setValue(0)
-        self._progress_bar.setTextVisible(False)
-        progress_layout.addWidget(self._progress_bar)
-        
-        # 进度信息
-        info_layout = QHBoxLayout()
-        
-        self._progress_label = QLabel("就绪")
-        apply_label_style(self._progress_label, 'secondary')
-        info_layout.addWidget(self._progress_label)
-        
-        info_layout.addStretch()
-        
-        self._file_label = QLabel("")
-        apply_label_style(self._file_label, 'secondary')
-        info_layout.addWidget(self._file_label)
-        
-        progress_layout.addLayout(info_layout)
-        
-        layout.addWidget(progress_group)
     
-    def _setup_preview(self, layout: QVBoxLayout) -> None:
-        """设置预览区域"""
-        preview_group = QGroupBox("分类预览")
-        preview_layout = QVBoxLayout(preview_group)
+    def _setup_progress_card(self, layout):
+        card = Card("处理进度")
         
-        # 滚动区域
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
+        self._progress.setTextVisible(False)
+        self._progress.setFixedHeight(4)
+        card.addWidget(self._progress)
         
-        # 预览容器
-        self._preview_container = QWidget()
-        self._preview_layout = QVBoxLayout(self._preview_container)
+        row = QHBoxLayout()
+        self._status_lbl = QLabel("就绪")
+        self._status_lbl.setStyleSheet(CAPTION_STYLE)
+        row.addWidget(self._status_lbl)
+        row.addStretch()
+        self._file_lbl = QLabel("")
+        self._file_lbl.setStyleSheet(CAPTION_STYLE)
+        row.addWidget(self._file_lbl)
+        card.addLayout(row)
+        layout.addWidget(card)
+    
+    def _setup_preview_card(self, layout):
+        card = Card("分类预览")
+        
+        self._preview_scroll = QScrollArea()
+        self._preview_scroll.setWidgetResizable(True)
+        self._preview_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._preview_scroll.setMinimumHeight(160)
+        
+        self._preview_widget = QWidget()
+        self._preview_layout = QVBoxLayout(self._preview_widget)
+        self._preview_layout.setContentsMargins(0, 0, 0, 0)
+        self._preview_layout.setSpacing(12)
         self._preview_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
-        # 初始提示
-        self._empty_label = QLabel("分类完成后将在此显示预览")
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        apply_label_style(self._empty_label, 'secondary')
-        self._preview_layout.addWidget(self._empty_label)
+        self._empty_lbl = QLabel("分类完成后将在此显示预览")
+        self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_lbl.setStyleSheet(CAPTION_STYLE)
+        self._preview_layout.addWidget(self._empty_lbl)
         
-        scroll_area.setWidget(self._preview_container)
-        preview_layout.addWidget(scroll_area)
-        
-        preview_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        layout.addWidget(preview_group, 1)
+        self._preview_scroll.setWidget(self._preview_widget)
+        card.addWidget(self._preview_scroll)
+        layout.addWidget(card, 1)
     
-    def apply_flat_style(self) -> None:
-        """应用扁平设计样式"""
-        self.setStyleSheet(get_full_stylesheet())
+    # ========== 事件 ==========
     
-    def on_select_folder(self) -> None:
-        """处理文件夹选择"""
-        folder = QFileDialog.getExistingDirectory(
-            self,
-            "选择图片文件夹",
-            "",
-            QFileDialog.Option.ShowDirsOnly
-        )
-        
+    def _on_browse(self):
+        folder = QFileDialog.getExistingDirectory(self, "选择图片文件夹")
         if folder:
             self._path_edit.setText(folder)
-            self._update_button_states()
+            self._update_states()
     
-    def on_start_classification(self) -> None:
-        """开始分类操作"""
-        source_path = self._path_edit.text()
-        
-        if not source_path:
-            QMessageBox.warning(self, "提示", "请先选择要分类的文件夹")
+    def _on_mode_change(self, idx):
+        self._advanced = self._mode_combo.currentData()
+        self._adv_panel.setVisible(self._advanced)
+    
+    def _on_auto_toggle(self):
+        auto = self._auto_btn.isChecked()
+        self._cluster_spin.setEnabled(not auto)
+        self._auto_btn.setText("自动" if auto else "手动")
+    
+    def _on_start(self):
+        src = self._path_edit.text()
+        if not src or not os.path.isdir(src):
+            QMessageBox.warning(self, "提示", "请先选择有效的文件夹")
             return
         
-        if not os.path.isdir(source_path):
-            QMessageBox.warning(self, "错误", "选择的路径不存在或不是文件夹")
-            return
+        self._set_enabled(False)
+        self._progress.setValue(0)
+        self._status_lbl.setText("正在扫描...")
+        self._file_lbl.setText("")
         
-        # 禁用按钮
-        self._set_buttons_enabled(False)
-        
-        # 重置进度
-        self._progress_bar.setValue(0)
-        self._progress_label.setText("正在扫描...")
-        self._file_label.setText("")
-        
-        # 根据模式选择引擎
-        if self._is_advanced_mode:
-            # 更新特征权重
+        if self._advanced:
             weights = FeatureWeights(
                 hue=self._hue_slider.value() / 100.0,
-                lightness=self._lightness_slider.value() / 100.0,
-                saturation=self._saturation_slider.value() / 100.0
+                lightness=self._light_slider.value() / 100.0,
+                saturation=self._sat_slider.value() / 100.0
             )
-            self._advanced_engine.set_feature_weights(weights)
-            
-            # 获取聚类数
-            n_clusters = None if self._auto_cluster_check.isChecked() else self._cluster_spin.value()
-            
-            # 启动高级模式工作线程，target_path=source_path 表示在源文件夹下创建子文件夹
-            self._worker = ClassificationWorker(
-                self._advanced_engine, 
-                source_path,
-                target_path=source_path,
-                n_clusters=n_clusters,
-                is_advanced=True
-            )
+            self._adv_engine.set_feature_weights(weights)
+            n = None if self._auto_btn.isChecked() else self._cluster_spin.value()
+            self._worker = Worker(self._adv_engine, src, src, n, True)
         else:
-            # 启动简单模式工作线程
-            self._worker = ClassificationWorker(self._engine, source_path, is_advanced=False)
+            self._worker = Worker(self._engine, src, advanced=False)
         
-        self._worker.progress_updated.connect(self.update_progress)
-        self._worker.finished.connect(self._on_classification_finished)
-        self._worker.error.connect(self._on_classification_error)
+        self._worker.progress.connect(self._on_progress)
+        self._worker.finished.connect(self._on_finished)
+        self._worker.error.connect(self._on_error)
         self._worker.start()
     
-    def _on_classification_finished(self, result) -> None:
-        """分类完成回调"""
-        self._last_result = result
-        self._set_buttons_enabled(True)
-        self._update_button_states()
+    def _on_progress(self, cur, total, fname):
+        if total > 0:
+            self._progress.setValue(int(cur / total * 100))
+            self._status_lbl.setText(f"处理中: {cur}/{total}")
+            self._file_lbl.setText(fname)
+    
+    def _on_finished(self, result):
+        self._set_enabled(True)
+        self._update_states()
         
-        # 显示完成信息
         if isinstance(result, AdvancedClassificationResult):
-            self._progress_label.setText(
-                f"完成: {result.total_images} 张图片, {result.n_clusters} 个类别, "
-                f"轮廓系数: {result.silhouette_score:.2f}"
-            )
+            self._status_lbl.setText(f"完成: {result.total_images}张, {result.n_clusters}类")
+            msg = f"分类完成\n{result.total_images}张图片分为{result.n_clusters}类"
         else:
-            self._progress_label.setText(
-                f"完成: 成功 {result.total_processed} 张, 失败 {result.total_failed} 张"
-            )
-        self._file_label.setText("")
+            self._status_lbl.setText(f"完成: 成功{result.total_processed}张")
+            msg = f"分类完成\n成功{result.total_processed}张, 失败{result.total_failed}张"
         
-        # 显示预览
+        self._file_lbl.setText("")
         if result.total_processed > 0:
-            self.show_preview(result)
-        
-        # 显示完成对话框
-        if isinstance(result, AdvancedClassificationResult):
-            QMessageBox.information(
-                self,
-                "分类完成",
-                f"成功分类 {result.total_images} 张图片\n"
-                f"分为 {result.n_clusters} 个类别\n"
-                f"聚类质量 (轮廓系数): {result.silhouette_score:.2f}"
-            )
-        else:
-            QMessageBox.information(
-                self,
-                "分类完成",
-                f"成功分类 {result.total_processed} 张图片\n"
-                f"失败 {result.total_failed} 张"
-            )
+            self._show_preview(result)
+        QMessageBox.information(self, "完成", msg)
     
-    def _on_classification_error(self, error_msg: str) -> None:
-        """分类错误回调"""
-        self._set_buttons_enabled(True)
-        self._update_button_states()
-        self._progress_label.setText("分类失败")
-        
-        QMessageBox.critical(self, "错误", f"分类过程中发生错误:\n{error_msg}")
+    def _on_error(self, err):
+        self._set_enabled(True)
+        self._update_states()
+        self._status_lbl.setText("分类失败")
+        QMessageBox.critical(self, "错误", f"分类出错:\n{err}")
     
-    def on_rollback(self) -> None:
-        """处理回退操作"""
-        # 检查当前模式的引擎是否可以回退
-        can_rollback_simple = self._engine.can_rollback()
-        can_rollback_advanced = self._advanced_engine.can_rollback()
+    def _on_rollback(self):
+        can_s = self._engine.can_rollback()
+        can_a = self._adv_engine.can_rollback()
         
-        if not can_rollback_simple and not can_rollback_advanced:
+        if not can_s and not can_a:
             QMessageBox.information(self, "提示", "没有可撤销的操作")
             return
         
-        # 优先回退高级模式的操作
-        if can_rollback_advanced:
-            rollback_count = self._advanced_engine.get_rollback_count()
-            reply = QMessageBox.question(
-                self,
-                "确认撤销",
-                f"确定要撤销上次分类操作吗?\n"
-                f"将恢复 {rollback_count} 个文件到原位置。",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                result = self._advanced_engine.rollback()
-                self._update_button_states()
-                self._clear_preview()
-                
-                QMessageBox.information(
-                    self,
-                    "撤销完成",
-                    f"成功恢复 {result.success_count} 个文件\n"
-                    f"失败 {result.failed_count} 个"
-                )
-        elif can_rollback_simple:
-            rollback_count = self._engine.get_rollback_count()
-            reply = QMessageBox.question(
-                self,
-                "确认撤销",
-                f"确定要撤销上次分类操作吗?\n"
-                f"将恢复 {rollback_count} 个文件到原位置。",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                result = self._engine.rollback()
-                self._update_button_states()
-                self._clear_preview()
-                
-                QMessageBox.information(
-                    self,
-                    "撤销完成",
-                    f"成功恢复 {result.success_count} 个文件\n"
-                    f"失败 {result.failed_count} 个"
-                )
-    
-    def update_progress(self, current: int, total: int, filename: str) -> None:
-        """更新进度显示"""
-        if total > 0:
-            percentage = int((current / total) * 100)
-            self._progress_bar.setValue(percentage)
-            self._progress_label.setText(f"处理中: {current}/{total}")
-            self._file_label.setText(filename)
+        engine = self._adv_engine if can_a else self._engine
+        cnt = engine.get_rollback_count()
+        
+        if QMessageBox.question(
+            self, "确认", f"确定撤销? 将恢复{cnt}个文件",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) == QMessageBox.StandardButton.Yes:
+            result = engine.rollback()
+            self._update_states()
+            self._clear_preview()
+            QMessageBox.information(self, "完成", f"恢复{result.success_count}个, 失败{result.failed_count}个")
 
-    def show_preview(self, result) -> None:
-        """显示分类结果预览"""
+    
+    # ========== 预览 ==========
+    
+    def _show_preview(self, result):
         self._clear_preview()
-        
-        source_path = self._path_edit.text()
-        
-        # 获取类别计数（兼容两种结果类型）
-        category_counts = result.category_counts
-        
-        for category, count in sorted(category_counts.items(), key=lambda x: -x[1]):
-            category_path = os.path.join(source_path, category)
-            
-            if os.path.isdir(category_path):
-                card = self._create_category_card(category, count, category_path)
-                self._preview_layout.addWidget(card)
+        src = self._path_edit.text()
+        for cat, cnt in sorted(result.category_counts.items(), key=lambda x: -x[1]):
+            path = os.path.join(src, cat)
+            if os.path.isdir(path):
+                self._add_preview_item(cat, cnt, path)
     
-    def _create_category_card(self, category: str, count: int, category_path: str) -> QFrame:
-        """创建类别预览卡片"""
-        card = QFrame()
-        card.setStyleSheet(PREVIEW_CARD_STYLE)
-        card.setProperty("expanded", False)
+    def _add_preview_item(self, cat, cnt, path):
+        frame = QFrame()
+        frame.setStyleSheet("background: rgba(255,255,255,0.5); border: none; border-radius: 6px;")
         
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(12, 12, 12, 12)
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(10)
         
-        # 标题行
-        header_layout = QHBoxLayout()
+        header = QHBoxLayout()
+        lbl = QLabel(f"{cat} ({cnt}张)")
+        lbl.setStyleSheet("font-weight: 600;")
+        header.addWidget(lbl)
+        header.addStretch()
         
-        title_label = QLabel(f"{category} ({count}张)")
-        title_label.setStyleSheet(f"font-weight: 600; color: {COLORS['text_primary']};")
-        header_layout.addWidget(title_label)
+        btn = QPushButton("展开")
+        btn.setStyleSheet(SECONDARY_BTN)
+        btn.setFixedSize(60, 28)
+        btn.clicked.connect(lambda: self._toggle_preview(frame, path, btn))
+        header.addWidget(btn)
+        layout.addLayout(header)
         
-        header_layout.addStretch()
+        thumbs = QWidget()
+        thumbs.setVisible(False)
+        thumbs_layout = QGridLayout(thumbs)
+        thumbs_layout.setSpacing(6)
+        thumbs_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(thumbs)
         
-        expand_btn = QPushButton("展开")
-        expand_btn.setStyleSheet(SECONDARY_BUTTON_STYLE)
-        expand_btn.setFixedWidth(60)
-        expand_btn.clicked.connect(lambda: self._toggle_category_expand(card, category_path, expand_btn))
-        header_layout.addWidget(expand_btn)
+        frame._thumbs = thumbs
+        frame._thumbs_layout = thumbs_layout
+        frame._expanded = False
         
-        card_layout.addLayout(header_layout)
-        
-        # 缩略图网格容器
-        thumbnails_widget = QWidget()
-        thumbnails_widget.setVisible(False)
-        thumbnails_layout = QGridLayout(thumbnails_widget)
-        thumbnails_layout.setSpacing(8)
-        card_layout.addWidget(thumbnails_widget)
-        
-        # 存储引用
-        card.thumbnails_widget = thumbnails_widget
-        card.thumbnails_layout = thumbnails_layout
-        card.category_path = category_path
-        
-        return card
+        self._preview_layout.addWidget(frame)
     
-    def _toggle_category_expand(self, card: QFrame, category_path: str, btn: QPushButton) -> None:
-        """切换类别展开/折叠状态"""
-        is_expanded = card.property("expanded")
-        
-        if is_expanded:
-            # 折叠
-            card.thumbnails_widget.setVisible(False)
+    def _toggle_preview(self, frame, path, btn):
+        if frame._expanded:
+            frame._thumbs.setVisible(False)
             btn.setText("展开")
-            card.setProperty("expanded", False)
+            frame._expanded = False
         else:
-            # 展开并加载缩略图
-            self._load_thumbnails(card, category_path)
-            card.thumbnails_widget.setVisible(True)
+            if frame._thumbs_layout.count() == 0:
+                self._load_thumbs(frame, path)
+            frame._thumbs.setVisible(True)
             btn.setText("收起")
-            card.setProperty("expanded", True)
+            frame._expanded = True
     
-    def _load_thumbnails(self, card: QFrame, category_path: str) -> None:
-        """加载类别缩略图"""
-        layout = card.thumbnails_layout
-        
-        # 清空现有缩略图
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        
-        # 生成缩略图
-        thumbnails = self._preview_generator.generate_category_preview(category_path)
-        
-        # 添加到网格
-        cols = 6
-        for idx, pixmap in enumerate(thumbnails):
-            row = idx // cols
-            col = idx % cols
-            
-            thumb_label = QLabel()
-            thumb_label.setPixmap(pixmap)
-            thumb_label.setFixedSize(100, 100)
-            thumb_label.setScaledContents(True)
-            thumb_label.setStyleSheet(
-                f"border: 1px solid {COLORS['border']}; border-radius: 4px;"
-            )
-            layout.addWidget(thumb_label, row, col)
+    def _load_thumbs(self, frame, path):
+        try:
+            files = [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp'))]
+            files = files[:8]
+            for i, fname in enumerate(files):
+                fpath = os.path.join(path, fname)
+                try:
+                    pixmap = QPixmap(fpath)
+                    if not pixmap.isNull():
+                        pixmap = pixmap.scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                        lbl = QLabel()
+                        lbl.setPixmap(pixmap)
+                        lbl.setStyleSheet("border: 1px solid rgba(0,0,0,0.1); border-radius: 4px; padding: 2px;")
+                        frame._thumbs_layout.addWidget(lbl, i // 4, i % 4)
+                except:
+                    pass
+        except:
+            pass
     
-    def _clear_preview(self) -> None:
-        """清空预览区域"""
-        # 移除所有子部件
-        while self._preview_layout.count():
+    def _clear_preview(self):
+        while self._preview_layout.count() > 0:
             item = self._preview_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
         
-        # 添加空提示
-        self._empty_label = QLabel("分类完成后将在此显示预览")
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        apply_label_style(self._empty_label, 'secondary')
-        self._preview_layout.addWidget(self._empty_label)
+        self._empty_lbl = QLabel("分类完成后将在此显示预览")
+        self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_lbl.setStyleSheet(CAPTION_STYLE)
+        self._preview_layout.addWidget(self._empty_lbl)
     
-    def _set_buttons_enabled(self, enabled: bool) -> None:
-        """设置按钮启用状态"""
+    def _set_enabled(self, enabled: bool):
         self._browse_btn.setEnabled(enabled)
         self._start_btn.setEnabled(enabled)
         self._rollback_btn.setEnabled(enabled)
+        self._mode_combo.setEnabled(enabled)
     
-    def _update_button_states(self) -> None:
-        """更新按钮状态"""
-        has_path = bool(self._path_edit.text())
-        can_rollback = self._engine.can_rollback() or self._advanced_engine.can_rollback()
-        
+    def _update_states(self):
+        has_path = bool(self._path_edit.text()) and os.path.isdir(self._path_edit.text())
+        can_rollback = self._engine.can_rollback() or self._adv_engine.can_rollback()
         self._start_btn.setEnabled(has_path)
         self._rollback_btn.setEnabled(can_rollback)
-    
-    def check_admin_mode(self) -> bool:
-        """检查是否以管理员模式运行"""
-        try:
-            if sys.platform == 'win32':
-                return ctypes.windll.shell32.IsUserAnAdmin() != 0
-            else:
-                return os.geteuid() == 0
-        except Exception:
-            return False
