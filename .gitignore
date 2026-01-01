@@ -28,6 +28,7 @@ env/
 
 # Testing
 .kiro/
+tests/
 .pytest_cache/
 .hypothesis/
 htmlcov/

@@ -4,6 +4,15 @@
 
 一个自动按颜色分类照片的桌面应用。使用 Python 和 PyQt6 构建。
 
+## 截图展示
+
+### 用户界面
+![用户界面](pic/page_show.png)
+
+### 分类结果
+![分类结果 1](pic/classify_test_1.png)
+![分类结果 2](pic/classify_test_2.png)
+
 ## 功能
 
 - **简单模式**：按主色调分类（红、蓝、绿等）

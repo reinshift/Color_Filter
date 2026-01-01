@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QScrollArea, QFrame, QComboBox, QSlider, QSpinBox,
     QTabWidget,
 )
-from PyQt6.QtGui import QPixmap, QMouseEvent
+from PyQt6.QtGui import QPixmap, QMouseEvent, QIcon
 
 from .styles import (
     get_stylesheet, get_card_style, COLORS, COLORS_LIGHT, COLORS_DARK,
@@ -308,6 +308,7 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._advanced = False
         
+        
         self._settings = QSettings("ColorClassifier", "Settings")
         self._opacity = self._settings.value("opacity", 120, int)
         self._blur_color = self._settings.value("blur_color", 0xE8E8E8, int)
@@ -327,6 +328,25 @@ class MainWindow(QMainWindow):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet(get_stylesheet(self._dark_mode))
+        
+        # 设置 Windows AppUserModelID（让任务栏正确显示图标）
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('ColorClassifier.App')
+        except:
+            pass
+        
+        # 设置窗口图标（任务栏显示）
+        if getattr(sys, 'frozen', False):
+            # 打包后的路径 - 图标在 _internal 目录
+            base_path = os.path.dirname(sys.executable)
+            icon_path = os.path.join(base_path, '_internal', 'app.ico')
+        else:
+            # 开发环境
+            icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'app.ico')
+        
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
     
     def _apply_effects(self):
         enable_rounded_corners(self)

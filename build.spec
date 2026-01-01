@@ -29,6 +29,7 @@ a = Analysis(
     datas=[
         ('src/ui', 'ui'),
         ('src/core', 'core'),
+        ('app.ico', '.'),  # 图标文件
     ],
     hiddenimports=pyqt6_hiddenimports + sklearn_hiddenimports + [
         'numpy', 
@@ -67,6 +68,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    icon='app.ico',  # 应用图标
 )
 
 coll = COLLECT(

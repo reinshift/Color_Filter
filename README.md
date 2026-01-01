@@ -4,6 +4,15 @@
 
 A desktop app that automatically classifies photos by color. Built with Python and PyQt6.
 
+## Screenshots
+
+### User Interface
+![User Interface](pic/page_show.png)
+
+### Classification Results
+![Classification Result 1](pic/classify_test_1.png)
+![Classification Result 2](pic/classify_test_2.png)
+
 ## Features
 
 - **Simple Mode**: Classify by dominant color (red, blue, green, etc.)
