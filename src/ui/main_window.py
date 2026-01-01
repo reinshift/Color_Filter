@@ -5,14 +5,14 @@
 import os
 import sys
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings, QPoint, QPropertyAnimation, QEasingCurve, QRect, QSequentialAnimationGroup, QParallelAnimationGroup
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings, QPoint, QPropertyAnimation, QEasingCurve, QRect
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QLineEdit, QProgressBar, QFileDialog,
     QMessageBox, QScrollArea, QFrame, QComboBox, QSlider, QSpinBox,
-    QTabWidget, QGraphicsOpacityEffect, QGraphicsColorizeEffect,
+    QTabWidget,
 )
-from PyQt6.QtGui import QPixmap, QMouseEvent, QColor, QPainter, QBrush
+from PyQt6.QtGui import QPixmap, QMouseEvent
 
 from .styles import (
     get_stylesheet, get_card_style, COLORS, COLORS_LIGHT, COLORS_DARK,
@@ -225,10 +225,10 @@ class AnimatedToggle(QWidget):
         self._knob.move(2, 2)
         self._knob.setStyleSheet("background: white; border-radius: 9px;")
         
-        # 滑块动画 - 稍微减慢
+        # 滑块动画 - 使用 OutBack 缓动曲线实现阻尼/回弹效果
         self._knob_anim = QPropertyAnimation(self._knob, b"geometry")
-        self._knob_anim.setDuration(200)
-        self._knob_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._knob_anim.setDuration(300)  # 稍长的动画时间
+        self._knob_anim.setEasingCurve(QEasingCurve.Type.OutBack)  # 带回弹的阻尼效果
     
     def _get_bg_style(self):
         c = COLORS_DARK if self._dark_mode else COLORS_LIGHT
@@ -272,58 +272,6 @@ class AnimatedToggle(QWidget):
             self._bg.setStyleSheet(self._get_bg_style())
             self.toggled.emit(self._checked)
             event.accept()
-
-
-class RippleOverlay(QWidget):
-    """涟漪过渡效果覆盖层"""
-    finished = pyqtSignal()
-    
-    def __init__(self, parent, start_pos, target_color, duration=400):
-        super().__init__(parent)
-        self.setGeometry(parent.rect())
-        self._start_pos = start_pos
-        self._target_color = target_color
-        self._radius = 0
-        self._max_radius = int((parent.width() ** 2 + parent.height() ** 2) ** 0.5)
-        self._opacity = 1.0
-        
-        # 扩散动画
-        self._expand_anim = QPropertyAnimation(self, b"radius")
-        self._expand_anim.setDuration(duration)
-        self._expand_anim.setStartValue(0)
-        self._expand_anim.setEndValue(self._max_radius)
-        self._expand_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
-        self._expand_anim.finished.connect(self._on_expand_finished)
-        
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.show()
-        self.raise_()
-    
-    def start(self):
-        self._expand_anim.start()
-    
-    def _on_expand_finished(self):
-        self.finished.emit()
-        self.deleteLater()
-    
-    @property
-    def radius(self):
-        return self._radius
-    
-    @radius.setter
-    def radius(self, value):
-        self._radius = value
-        self.update()
-    
-    # 为 QPropertyAnimation 提供属性
-    radius = property(lambda self: self._radius, lambda self, v: (setattr(self, '_radius', v), self.update()))
-    
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QBrush(self._target_color))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(self._start_pos, int(self._radius), int(self._radius))
 
 
 class Card(QFrame):
@@ -590,20 +538,9 @@ class MainWindow(QMainWindow):
             self._dark_mode = self._dark_mode_toggle.isChecked()
         self._settings.setValue("dark_mode", self._dark_mode)
         
-        # 获取 Toggle 在窗口中的位置作为涟漪起点
-        toggle_pos = self._dark_mode_toggle.mapTo(self, QPoint(22, 11))
-        
-        # 创建涟漪效果
-        target_color = QColor(32, 32, 32, 200) if self._dark_mode else QColor(245, 245, 245, 200)
-        ripple = RippleOverlay(self.centralWidget(), toggle_pos, target_color, duration=350)
-        ripple.finished.connect(lambda: self._apply_theme_after_ripple())
-        ripple.start()
-        
         # 更新 Toggle 样式
         self._dark_mode_toggle.setDarkMode(self._dark_mode)
-    
-    def _apply_theme_after_ripple(self):
-        """涟漪动画完成后应用主题"""
+        
         # 更新全局颜色配置
         set_dark_mode(self._dark_mode)
         
