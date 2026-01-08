@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QScrollArea, QFrame, QComboBox, QSlider, QSpinBox,
     QTabWidget,
 )
-from PyQt6.QtGui import QPixmap, QMouseEvent, QIcon
+from PyQt6.QtGui import QPixmap, QMouseEvent, QIcon, QWheelEvent
 
 from .styles import (
     get_stylesheet, get_card_style, COLORS, COLORS_LIGHT, COLORS_DARK,
@@ -26,6 +26,13 @@ from core.engine import ClassificationEngine
 from core.advanced_engine import AdvancedClassificationEngine
 from core.preview_generator import PreviewGenerator
 from core.models import AdvancedClassificationResult, FeatureWeights
+import shutil
+
+
+class NoWheelSlider(QSlider):
+    """禁用滚轮的滑块"""
+    def wheelEvent(self, event: QWheelEvent):
+        event.ignore()  # 忽略滚轮事件，让父控件处理
 
 
 class Worker(QThread):
@@ -300,6 +307,9 @@ class Card(QFrame):
 class MainWindow(QMainWindow):
     """主窗口"""
     
+    # 边缘缩放相关常量
+    EDGE_MARGIN = 8  # 边缘检测区域宽度
+    
     def __init__(self):
         super().__init__()
         self._engine = ClassificationEngine()
@@ -308,6 +318,10 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._advanced = False
         
+        # 边缘缩放状态
+        self._resize_edge = None  # 当前缩放的边缘
+        self._resize_start_pos = None  # 缩放开始时的鼠标位置
+        self._resize_start_geo = None  # 缩放开始时的窗口几何
         
         self._settings = QSettings("ColorClassifier", "Settings")
         self._opacity = self._settings.value("opacity", 120, int)
@@ -328,6 +342,8 @@ class MainWindow(QMainWindow):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet(get_stylesheet(self._dark_mode))
+        # 启用鼠标追踪以检测边缘悬停
+        self.setMouseTracking(True)
         
         # 设置 Windows AppUserModelID（让任务栏正确显示图标）
         try:
@@ -431,6 +447,7 @@ class MainWindow(QMainWindow):
     def _init_ui(self):
         central = QWidget()
         central.setObjectName("central")
+        central.setMouseTracking(True)  # 启用鼠标追踪
         self.setCentralWidget(central)
         
         main_layout = QVBoxLayout(central)
@@ -444,11 +461,13 @@ class MainWindow(QMainWindow):
         # 内容区域 - 使用半透明背景保持亚克力效果
         self._content_frame = QFrame()
         self._content_frame.setObjectName("contentFrame")
+        self._content_frame.setMouseTracking(True)  # 启用鼠标追踪
         content_layout = QVBoxLayout(self._content_frame)
         content_layout.setContentsMargins(24, 16, 24, 24)
         content_layout.setSpacing(0)
         
         self._tabs = QTabWidget()
+        self._tabs.setMouseTracking(True)  # 启用鼠标追踪
         self._tabs.addTab(self._create_main_page(), "分类")
         self._tabs.addTab(self._create_settings_page(), "设置")
         content_layout.addWidget(self._tabs)
@@ -507,7 +526,7 @@ class MainWindow(QMainWindow):
         row1.setContentsMargins(0, 4, 0, 4)
         row1.addWidget(QLabel("亚克力透明度"))
         row1.addStretch()
-        self._opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self._opacity_slider = NoWheelSlider(Qt.Orientation.Horizontal)
         self._opacity_slider.setRange(30, 200)  # 更大范围
         self._opacity_slider.setValue(self._opacity)
         self._opacity_slider.setMinimumWidth(200)
@@ -644,6 +663,13 @@ class MainWindow(QMainWindow):
         self._rollback_btn.clicked.connect(self._on_rollback)
         btn_row.addWidget(self._rollback_btn)
         
+        self._flatten_btn = QPushButton("提取图片")
+        self._flatten_btn.setStyleSheet(SECONDARY_BTN)
+        self._flatten_btn.setMinimumSize(100, 40)
+        self._flatten_btn.setToolTip("将所有子文件夹中的图片移动到当前文件夹，并删除空文件夹")
+        self._flatten_btn.clicked.connect(self._on_flatten)
+        btn_row.addWidget(self._flatten_btn)
+        
         btn_row.addStretch()
         card.addLayout(btn_row)
         
@@ -700,7 +726,7 @@ class MainWindow(QMainWindow):
         slider_names = [("hue", "色调", 40), ("lightness", "明度", 35), ("saturation", "饱和度", 25)]
         for i, (key, name, default) in enumerate(slider_names):
             grid.addWidget(QLabel(name), i, 0)
-            slider = QSlider(Qt.Orientation.Horizontal)
+            slider = NoWheelSlider(Qt.Orientation.Horizontal)
             slider.setRange(0, 100)
             slider.setValue(default)
             slider.setMinimumWidth(150)
@@ -856,6 +882,75 @@ class MainWindow(QMainWindow):
             self._update_states()
             self._clear_preview()
             QMessageBox.information(self, "完成", f"恢复{result.success_count}个, 失败{result.failed_count}个")
+    
+    def _on_flatten(self):
+        """提取所有子文件夹中的图片到当前文件夹"""
+        src = self._path_edit.text()
+        if not src or not os.path.isdir(src):
+            QMessageBox.warning(self, "提示", "请先选择有效的文件夹")
+            return
+        
+        # 支持的图片格式
+        img_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp', '.tiff', '.tif'}
+        
+        # 收集所有子文件夹中的图片
+        images_to_move = []
+        for root, dirs, files in os.walk(src):
+            if root == src:
+                continue  # 跳过根目录
+            for f in files:
+                if os.path.splitext(f)[1].lower() in img_exts:
+                    images_to_move.append(os.path.join(root, f))
+        
+        if not images_to_move:
+            QMessageBox.information(self, "提示", "子文件夹中没有找到图片")
+            return
+        
+        # 确认操作
+        if QMessageBox.question(
+            self, "确认", 
+            f"将从子文件夹中提取 {len(images_to_move)} 张图片到:\n{src}\n\n空文件夹将被删除，是否继续?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        
+        # 移动图片
+        moved = 0
+        failed = 0
+        for img_path in images_to_move:
+            fname = os.path.basename(img_path)
+            dest = os.path.join(src, fname)
+            
+            # 处理重名
+            if os.path.exists(dest):
+                base, ext = os.path.splitext(fname)
+                counter = 1
+                while os.path.exists(dest):
+                    dest = os.path.join(src, f"{base}_{counter}{ext}")
+                    counter += 1
+            
+            try:
+                shutil.move(img_path, dest)
+                moved += 1
+            except Exception:
+                failed += 1
+        
+        # 删除空文件夹（从深到浅）
+        deleted_dirs = 0
+        for root, dirs, files in os.walk(src, topdown=False):
+            if root == src:
+                continue
+            try:
+                if not os.listdir(root):  # 空文件夹
+                    os.rmdir(root)
+                    deleted_dirs += 1
+            except Exception:
+                pass
+        
+        QMessageBox.information(
+            self, "完成", 
+            f"移动图片: {moved} 张\n失败: {failed} 张\n删除空文件夹: {deleted_dirs} 个"
+        )
 
     
     # ========== 预览 ==========
@@ -948,6 +1043,7 @@ class MainWindow(QMainWindow):
         self._browse_btn.setEnabled(enabled)
         self._start_btn.setEnabled(enabled)
         self._rollback_btn.setEnabled(enabled)
+        self._flatten_btn.setEnabled(enabled)
         self._mode_combo.setEnabled(enabled)
     
     def _update_states(self):
@@ -955,3 +1051,127 @@ class MainWindow(QMainWindow):
         can_rollback = self._engine.can_rollback() or self._adv_engine.can_rollback()
         self._start_btn.setEnabled(has_path)
         self._rollback_btn.setEnabled(can_rollback)
+    
+    # ========== 边缘缩放 ==========
+    
+    def _get_edge_at_pos(self, pos):
+        """
+        检测鼠标位置对应的窗口边缘
+        返回: 'left', 'right', 'top', 'bottom', 'top-left', 'top-right', 'bottom-left', 'bottom-right' 或 None
+        """
+        if self.isMaximized():
+            return None
+        
+        x, y = pos.x(), pos.y()
+        w, h = self.width(), self.height()
+        m = self.EDGE_MARGIN
+        
+        on_left = x <= m
+        on_right = x >= w - m
+        on_top = y <= m
+        on_bottom = y >= h - m
+        
+        if on_top and on_left:
+            return 'top-left'
+        elif on_top and on_right:
+            return 'top-right'
+        elif on_bottom and on_left:
+            return 'bottom-left'
+        elif on_bottom and on_right:
+            return 'bottom-right'
+        elif on_left:
+            return 'left'
+        elif on_right:
+            return 'right'
+        elif on_top:
+            return 'top'
+        elif on_bottom:
+            return 'bottom'
+        return None
+    
+    def _update_cursor_for_edge(self, edge):
+        """根据边缘位置更新鼠标光标"""
+        cursor_map = {
+            'left': Qt.CursorShape.SizeHorCursor,
+            'right': Qt.CursorShape.SizeHorCursor,
+            'top': Qt.CursorShape.SizeVerCursor,
+            'bottom': Qt.CursorShape.SizeVerCursor,
+            'top-left': Qt.CursorShape.SizeFDiagCursor,
+            'bottom-right': Qt.CursorShape.SizeFDiagCursor,
+            'top-right': Qt.CursorShape.SizeBDiagCursor,
+            'bottom-left': Qt.CursorShape.SizeBDiagCursor,
+        }
+        if edge and edge in cursor_map:
+            self.setCursor(cursor_map[edge])
+        else:
+            self.unsetCursor()
+    
+    def mousePressEvent(self, event: QMouseEvent):
+        """鼠标按下事件 - 开始边缘缩放"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position().toPoint()
+            edge = self._get_edge_at_pos(pos)
+            if edge:
+                self._resize_edge = edge
+                self._resize_start_pos = event.globalPosition().toPoint()
+                self._resize_start_geo = self.geometry()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event: QMouseEvent):
+        """鼠标移动事件 - 更新光标或执行缩放"""
+        if self._resize_edge and self._resize_start_pos:
+            # 正在缩放
+            delta = event.globalPosition().toPoint() - self._resize_start_pos
+            geo = QRect(self._resize_start_geo)
+            min_w, min_h = self.minimumWidth(), self.minimumHeight()
+            
+            edge = self._resize_edge
+            
+            # 根据边缘类型调整几何
+            if 'left' in edge:
+                new_left = geo.left() + delta.x()
+                new_width = geo.right() - new_left + 1
+                if new_width >= min_w:
+                    geo.setLeft(new_left)
+            
+            if 'right' in edge:
+                new_width = geo.width() + delta.x()
+                if new_width >= min_w:
+                    geo.setWidth(new_width)
+            
+            if 'top' in edge:
+                new_top = geo.top() + delta.y()
+                new_height = geo.bottom() - new_top + 1
+                if new_height >= min_h:
+                    geo.setTop(new_top)
+            
+            if 'bottom' in edge:
+                new_height = geo.height() + delta.y()
+                if new_height >= min_h:
+                    geo.setHeight(new_height)
+            
+            self.setGeometry(geo)
+            event.accept()
+        else:
+            # 更新光标
+            pos = event.position().toPoint()
+            edge = self._get_edge_at_pos(pos)
+            self._update_cursor_for_edge(edge)
+            super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        """鼠标释放事件 - 结束缩放"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._resize_edge:
+                self._resize_edge = None
+                self._resize_start_pos = None
+                self._resize_start_geo = None
+                # 更新光标
+                pos = event.position().toPoint()
+                edge = self._get_edge_at_pos(pos)
+                self._update_cursor_for_edge(edge)
+                event.accept()
+                return
+        super().mouseReleaseEvent(event)

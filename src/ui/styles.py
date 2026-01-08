@@ -137,6 +137,29 @@ def get_stylesheet(dark_mode: bool = False) -> str:
         }}
         QTabBar::tab:selected {{ color: {c['accent']}; border-bottom-color: {c['accent']}; }}
         QTabBar::tab:hover:!selected {{ color: {c['text']}; background: {c['titlebar_hover']}; }}
+        
+        /* 弹窗样式 */
+        QMessageBox {{
+            background: {c['surface_solid']};
+        }}
+        QMessageBox QLabel {{
+            color: {c['text']};
+            background: transparent;
+        }}
+        QMessageBox QPushButton {{
+            background: {c['control']};
+            color: {c['text']};
+            border: 1px solid {c['border']};
+            border-radius: 4px;
+            padding: 6px 16px;
+            min-width: 60px;
+        }}
+        QMessageBox QPushButton:hover {{
+            background: {c['input_hover']};
+        }}
+        QMessageBox QPushButton:pressed {{
+            background: {c['input_bg']};
+        }}
     """
 
 
